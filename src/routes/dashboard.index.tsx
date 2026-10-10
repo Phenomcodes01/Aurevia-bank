@@ -1,13 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { ArrowLeftRight, Download, Receipt, Send } from "lucide-react";
+// import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { ChevronDown, Download, Send } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardCard, PageTitle, TransactionRow } from "@/components/dashboard/ui";
 import { BankingCard } from "@/components/site/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { balanceSeries, demoAuth, spending, usd } from "@/lib/demo-data";
+import { demoAuth, usd } from "@/lib/demo-data";
 import { useMyAccounts } from "@/lib/bank-store";
 
 export const Route = createFileRoute("/dashboard/")({ head: () => ({ meta: [
@@ -25,31 +25,85 @@ const recent = [
   { name: "Netflix", amount: -15.99, category: "Entertainment", date: "Sep 28" },
   { name: "Salary", amount: 4500, category: "Income", date: "Sep 27" },
 ];
-const colors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
+// const colors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
 function Overview() {
   const accts = useMyAccounts(demoAuth.get()?.email);
   const name = demoAuth.get()?.name ?? "there";
   const [amt, setAmt] = useState("");
+  const [showBalances, setShowBalances] = useState(false);
   const act = (l: string) => toast(`${l} is not available yet`, { description: "" });
   return (
     <div className="space-y-6">
       <PageTitle title={`Welcome back, ${name.split(" ")[0]}`} subtitle="Here's your financial overview." />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {([["Total Balance", accts[0]!.balance + accts[1]!.balance + accts[2]!.balance], ["Available Balance", accts[0]!.balance], ["Savings", accts[1]!.balance], ["Investments", accts[2]!.balance]] as [string, number][]).map(([l, v], i) => (
-          <div key={l as string} className={i === 0 ? "rounded-[1.5rem] bg-gradient-navy p-6 text-navy-foreground shadow-elegant" : "card-surface p-6"}>
-            <p className={i === 0 ? "text-sm text-navy-foreground/60" : "text-sm text-muted-foreground"}>{l}</p>
-            <p className="mt-2 font-display text-2xl font-semibold">{usd(v as number)}</p>
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => setShowBalances((prev) => !prev)}
+          aria-expanded={showBalances}
+          className="w-full rounded-[1.5rem] bg-gradient-navy p-6 text-left text-navy-foreground shadow-elegant transition hover:shadow-lg"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-navy-foreground/70">Total Balance</p>
+
+              <p className="mt-2 font-display text-3xl font-semibold">
+                {usd(accts[0]!.balance + accts[1]!.balance + accts[2]!.balance)}
+              </p>
+
+              <p className="mt-2 text-xs text-navy-foreground/70">
+                {showBalances ? "Hide account breakdown" : "Click to view account breakdown"}
+              </p>
+            </div>
+
+            <ChevronDown
+              className={`h-5 w-5 shrink-0 transition-transform duration-300 ${
+                showBalances ? "rotate-180" : ""
+              }`}
+            />
           </div>
-        ))}
+        </button>
+
+        {showBalances && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              ["Available Balance", accts[0]!.balance],
+              ["Savings", accts[1]!.balance],
+              ["Investments", accts[2]!.balance],
+            ].map(([label, balance]) => (
+              <div key={label as string} className="card-surface p-5">
+                <p className="text-sm text-muted-foreground">
+                  {label as string}
+                </p>
+
+                <p className="mt-2 font-display text-xl font-semibold">
+                  {usd(balance as number)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[[Send, "Send Money"], [Download, "Deposit"], [Receipt, "Pay Bills"], [ArrowLeftRight, "Transfer"]].map(([I, l]) => {
-          const Icon = I as typeof Send;
-          return <button key={l as string} onClick={() => act(l as string)} className="card-surface flex items-center justify-center gap-2 p-4 text-sm font-semibold transition hover:-translate-y-0.5 hover:shadow-elegant"><Icon className="h-4 w-4 text-primary" />{l as string}</button>;
-        })}
+      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+        <Link
+          to="/dashboard/withdraw"
+          className="card-surface flex items-center justify-center gap-2 rounded-2xl p-4 text-sm font-semibold transition hover:-translate-y-0.5 hover:shadow-elegant"
+        >
+          <Send className="h-4 w-4 text-primary" />
+          Withdraw
+        </Link>
+
+        <Link
+          to="/dashboard/deposit"
+          className="card-surface flex items-center justify-center gap-2 rounded-2xl p-4 text-sm font-semibold transition hover:-translate-y-0.5 hover:shadow-elegant"
+        >
+          <Download className="h-4 w-4 text-primary" />
+          Deposit
+        </Link>
       </div>
-      <div className="grid gap-6 xl:grid-cols-3">
+
+
+      {/* <div className="grid gap-6 xl:grid-cols-3">
         <DashboardCard title="Balance" className="xl:col-span-2">
           <div className="h-64">
             <ResponsiveContainer>
@@ -70,7 +124,7 @@ function Overview() {
           </div>
           <ul className="mt-2 space-y-1.5 text-sm">{spending.map((s, i) => <li key={s.name} className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: colors[i] }} />{s.name}<span className="ml-auto font-medium">{usd(s.value)}</span></li>)}</ul>
         </DashboardCard>
-      </div>
+      </div> */}
       <div className="grid gap-6 xl:grid-cols-3">
         <DashboardCard title="Recent Transactions" action={<Link to="/dashboard/transactions" className="text-sm font-semibold text-primary">View all</Link>}>
           <ul className="divide-y divide-border">{recent.map((t) => <TransactionRow key={t.name} t={t} />)}</ul>

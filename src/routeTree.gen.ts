@@ -25,10 +25,12 @@ import { Route as AuthRegisterRouteImport } from './routes/auth.register'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as DashboardAccountsRouteImport } from './routes/dashboard.accounts'
 import { Route as DashboardCardsRouteImport } from './routes/dashboard.cards'
+import { Route as DashboardDepositRouteImport } from './routes/dashboard.deposit'
 import { Route as DashboardPaymentsRouteImport } from './routes/dashboard.payments'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
 import { Route as DashboardTransactionsRouteImport } from './routes/dashboard.transactions'
 import { Route as DashboardTransfersRouteImport } from './routes/dashboard.transfers'
+import { Route as DashboardWithdrawRouteImport } from './routes/dashboard.withdraw'
 import { Route as ServicesBusinessRouteImport } from './routes/services.business'
 import { Route as ServicesCardsRouteImport } from './routes/services.cards'
 import { Route as ServicesGrantsRouteImport } from './routes/services.grants'
@@ -115,6 +117,11 @@ const DashboardCardsRoute = DashboardCardsRouteImport.update({
   path: '/cards',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardDepositRoute = DashboardDepositRouteImport.update({
+  id: '/deposit',
+  path: '/deposit',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardPaymentsRoute = DashboardPaymentsRouteImport.update({
   id: '/payments',
   path: '/payments',
@@ -133,6 +140,11 @@ const DashboardTransactionsRoute = DashboardTransactionsRouteImport.update({
 const DashboardTransfersRoute = DashboardTransfersRouteImport.update({
   id: '/transfers',
   path: '/transfers',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardWithdrawRoute = DashboardWithdrawRouteImport.update({
+  id: '/withdraw',
+  path: '/withdraw',
   getParentRoute: () => DashboardRoute,
 } as any)
 const ServicesBusinessRoute = ServicesBusinessRouteImport.update({
@@ -177,10 +189,12 @@ export interface FileRoutesByFullPath {
   '/auth/register': typeof AuthRegisterRoute
   '/dashboard/accounts': typeof DashboardAccountsRoute
   '/dashboard/cards': typeof DashboardCardsRoute
+  '/dashboard/deposit': typeof DashboardDepositRoute
   '/dashboard/payments': typeof DashboardPaymentsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/transactions': typeof DashboardTransactionsRoute
   '/dashboard/transfers': typeof DashboardTransfersRoute
+  '/dashboard/withdraw': typeof DashboardWithdrawRoute
   '/services/business': typeof ServicesBusinessRoute
   '/services/cards': typeof ServicesCardsRoute
   '/services/grants': typeof ServicesGrantsRoute
@@ -203,10 +217,12 @@ export interface FileRoutesByTo {
   '/auth/register': typeof AuthRegisterRoute
   '/dashboard/accounts': typeof DashboardAccountsRoute
   '/dashboard/cards': typeof DashboardCardsRoute
+  '/dashboard/deposit': typeof DashboardDepositRoute
   '/dashboard/payments': typeof DashboardPaymentsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/transactions': typeof DashboardTransactionsRoute
   '/dashboard/transfers': typeof DashboardTransfersRoute
+  '/dashboard/withdraw': typeof DashboardWithdrawRoute
   '/services/business': typeof ServicesBusinessRoute
   '/services/cards': typeof ServicesCardsRoute
   '/services/grants': typeof ServicesGrantsRoute
@@ -231,10 +247,12 @@ export interface FileRoutesById {
   '/auth/register': typeof AuthRegisterRoute
   '/dashboard/accounts': typeof DashboardAccountsRoute
   '/dashboard/cards': typeof DashboardCardsRoute
+  '/dashboard/deposit': typeof DashboardDepositRoute
   '/dashboard/payments': typeof DashboardPaymentsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/transactions': typeof DashboardTransactionsRoute
   '/dashboard/transfers': typeof DashboardTransfersRoute
+  '/dashboard/withdraw': typeof DashboardWithdrawRoute
   '/services/business': typeof ServicesBusinessRoute
   '/services/cards': typeof ServicesCardsRoute
   '/services/grants': typeof ServicesGrantsRoute
@@ -260,10 +278,12 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/dashboard/accounts'
     | '/dashboard/cards'
+    | '/dashboard/deposit'
     | '/dashboard/payments'
     | '/dashboard/settings'
     | '/dashboard/transactions'
     | '/dashboard/transfers'
+    | '/dashboard/withdraw'
     | '/services/business'
     | '/services/cards'
     | '/services/grants'
@@ -286,10 +306,12 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/dashboard/accounts'
     | '/dashboard/cards'
+    | '/dashboard/deposit'
     | '/dashboard/payments'
     | '/dashboard/settings'
     | '/dashboard/transactions'
     | '/dashboard/transfers'
+    | '/dashboard/withdraw'
     | '/services/business'
     | '/services/cards'
     | '/services/grants'
@@ -313,10 +335,12 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/dashboard/accounts'
     | '/dashboard/cards'
+    | '/dashboard/deposit'
     | '/dashboard/payments'
     | '/dashboard/settings'
     | '/dashboard/transactions'
     | '/dashboard/transfers'
+    | '/dashboard/withdraw'
     | '/services/business'
     | '/services/cards'
     | '/services/grants'
@@ -460,6 +484,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardCardsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/deposit': {
+      id: '/dashboard/deposit'
+      path: '/deposit'
+      fullPath: '/dashboard/deposit'
+      preLoaderRoute: typeof DashboardDepositRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/payments': {
       id: '/dashboard/payments'
       path: '/payments'
@@ -486,6 +517,13 @@ declare module '@tanstack/react-router' {
       path: '/transfers'
       fullPath: '/dashboard/transfers'
       preLoaderRoute: typeof DashboardTransfersRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/withdraw': {
+      id: '/dashboard/withdraw'
+      path: '/withdraw'
+      fullPath: '/dashboard/withdraw'
+      preLoaderRoute: typeof DashboardWithdrawRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/services/business': {
@@ -529,20 +567,24 @@ declare module '@tanstack/react-router' {
 interface DashboardRouteChildren {
   DashboardAccountsRoute: typeof DashboardAccountsRoute
   DashboardCardsRoute: typeof DashboardCardsRoute
+  DashboardDepositRoute: typeof DashboardDepositRoute
   DashboardPaymentsRoute: typeof DashboardPaymentsRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
   DashboardTransactionsRoute: typeof DashboardTransactionsRoute
   DashboardTransfersRoute: typeof DashboardTransfersRoute
+  DashboardWithdrawRoute: typeof DashboardWithdrawRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAccountsRoute: DashboardAccountsRoute,
   DashboardCardsRoute: DashboardCardsRoute,
+  DashboardDepositRoute: DashboardDepositRoute,
   DashboardPaymentsRoute: DashboardPaymentsRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
   DashboardTransactionsRoute: DashboardTransactionsRoute,
   DashboardTransfersRoute: DashboardTransfersRoute,
+  DashboardWithdrawRoute: DashboardWithdrawRoute,
   DashboardIndexRoute: DashboardIndexRoute,
 }
 

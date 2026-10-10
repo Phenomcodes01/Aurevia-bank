@@ -94,10 +94,15 @@ function Navbar() {
 
 const cols = [
   { title: "Quick Links", links: [["About Us", "/about"], ["Services", "/services/personal"], ["Grants & Aid", "/services/grants"], ["FAQ", "/faq"], ["Contact", "/contact"]] },
+
   { title: "Services", links: [["Personal Banking", "/services/personal"], ["Business Banking", "/services/business"], ["Loans & Credit", "/services/loans"], ["Cards", "/services/cards"]] },
-  { title: "Member Services", links: [["Online Banking", "/auth/login"], ["Mobile App", "/apps"], ["Help & FAQ", "/faq"], ["Security", "/security"], ["Admin Console", "/admin"]] },
+
+  { title: "Member Services", links: [["Online Banking", "/auth/login"], ["Mobile App", "/apps"], ["Help & FAQ", "/faq"], ["Security", "/security"]] },
+
   { title: "Legal", links: [["Privacy Policy", "/privacy"], ["Terms of Service", "/terms"], ["Sitemap", "/sitemap"]] },
 ] as const;
+
+
 
 function Footer() {
   return (
