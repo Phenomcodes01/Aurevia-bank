@@ -22,6 +22,7 @@ import { Route as SitemapRouteImport } from './routes/sitemap'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as AuthRegisterRouteImport } from './routes/auth.register'
+import { Route as AuthVerifyOtpRouteImport } from './routes/auth.verify-otp'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as DashboardAccountsRouteImport } from './routes/dashboard.accounts'
 import { Route as DashboardCardsRouteImport } from './routes/dashboard.cards'
@@ -100,6 +101,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 const AuthRegisterRoute = AuthRegisterRouteImport.update({
   id: '/auth/register',
   path: '/auth/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthVerifyOtpRoute = AuthVerifyOtpRouteImport.update({
+  id: '/auth/verify-otp',
+  path: '/auth/verify-otp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardIndexRoute = DashboardIndexRouteImport.update({
@@ -187,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/verify-otp': typeof AuthVerifyOtpRoute
   '/dashboard/accounts': typeof DashboardAccountsRoute
   '/dashboard/cards': typeof DashboardCardsRoute
   '/dashboard/deposit': typeof DashboardDepositRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/verify-otp': typeof AuthVerifyOtpRoute
   '/dashboard/accounts': typeof DashboardAccountsRoute
   '/dashboard/cards': typeof DashboardCardsRoute
   '/dashboard/deposit': typeof DashboardDepositRoute
@@ -245,6 +253,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/verify-otp': typeof AuthVerifyOtpRoute
   '/dashboard/accounts': typeof DashboardAccountsRoute
   '/dashboard/cards': typeof DashboardCardsRoute
   '/dashboard/deposit': typeof DashboardDepositRoute
@@ -276,6 +285,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/verify-otp'
     | '/dashboard/accounts'
     | '/dashboard/cards'
     | '/dashboard/deposit'
@@ -304,6 +314,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/verify-otp'
     | '/dashboard/accounts'
     | '/dashboard/cards'
     | '/dashboard/deposit'
@@ -333,6 +344,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/verify-otp'
     | '/dashboard/accounts'
     | '/dashboard/cards'
     | '/dashboard/deposit'
@@ -363,6 +375,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
+  AuthVerifyOtpRoute: typeof AuthVerifyOtpRoute
   ServicesBusinessRoute: typeof ServicesBusinessRoute
   ServicesCardsRoute: typeof ServicesCardsRoute
   ServicesGrantsRoute: typeof ServicesGrantsRoute
@@ -461,6 +474,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/register'
       fullPath: '/auth/register'
       preLoaderRoute: typeof AuthRegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/verify-otp': {
+      id: '/auth/verify-otp'
+      path: '/auth/verify-otp'
+      fullPath: '/auth/verify-otp'
+      preLoaderRoute: typeof AuthVerifyOtpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard/': {
@@ -606,6 +626,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
+  AuthVerifyOtpRoute: AuthVerifyOtpRoute,
   ServicesBusinessRoute: ServicesBusinessRoute,
   ServicesCardsRoute: ServicesCardsRoute,
   ServicesGrantsRoute: ServicesGrantsRoute,

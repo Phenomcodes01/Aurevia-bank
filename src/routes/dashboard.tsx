@@ -26,6 +26,8 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/lib/theme";
 import { store } from "@/lib/bank-store";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
+import { useRealAccount } from "../lib/use-real-account";
+import { apiRequest } from "@/lib/api";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -49,15 +51,15 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 const nav = [
-  { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard, exact: true },
-  { label: "Accounts", to: "/dashboard/accounts", icon: Wallet },
-  { label: "Transfers", to: "/dashboard/transfers", icon: ArrowLeftRight },
-  { label: "Payments", to: "/dashboard/payments", icon: Receipt },
-  { label: "Cards", to: "/dashboard/cards", icon: CreditCard },
-  { label: "Transactions", to: "/dashboard/transactions", icon: List },
-  { label: "Settings", to: "/dashboard/settings", icon: Settings },
-  { label: "Support", to: "/faq", icon: Headphones },
+{ label: "Dashboard", to: "/dashboard", icon: LayoutDashboard, exact: true },
+{ label: "Accounts", to: "/dashboard/accounts", icon: Wallet },
+{ label: "Cards", to: "/dashboard/cards", icon: CreditCard },
+{ label: "Transactions", to: "/dashboard/transactions", icon: List },
+{ label: "Settings", to: "/dashboard/settings", icon: Settings },
+{ label: "Support", to: "/faq", icon: Headphones },
 ] as const;
+
+
 
 type NotificationItem = {
   id: number;
@@ -106,25 +108,65 @@ function Sidebar({
   onNav?: () => void;
 }) {
   const navigate = useNavigate();
+  const { account } = useRealAccount();
+
+  const [profileName, setProfileName] = useState(user.name);
+  const [profileEmail, setProfileEmail] = useState(user.email);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadProfile() {
+      const token = localStorage.getItem("aurevia_api_token");
+
+      if (!token) return;
+
+      try {
+        const data = await apiRequest<{
+          profile: {
+            name: string;
+            email: string;
+          };
+        }>("/profile", {
+          method: "GET",
+          token,
+        });
+
+        if (active) {
+          setProfileName(data.profile.name);
+          setProfileEmail(data.profile.email);
+        }
+      } catch {
+        // Keep the existing sidebar details if loading fails.
+      }
+    }
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <div className="flex h-full flex-col bg-sidebar p-5 text-sidebar-foreground">
       {/* Customer profile */}
       <div className="flex items-center gap-3 border-b border-sidebar-border pb-6">
         <ProfileAvatar
-          email={user.email}
-          name={user.name}
+          email={profileEmail}
+          name={profileName}
           size="lg"
           editable
         />
 
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">
-            {user.name}
+            {profileName}
           </p>
 
           <p className="mt-1 text-xs text-sidebar-foreground/70">
-            Account {demoAccounts[0]?.number ?? "••••"}
+            Account Number <br />
+            {account?.account_number ?? "••••"}
           </p>
         </div>
       </div>
@@ -154,6 +196,7 @@ function Sidebar({
       <button
         onClick={() => {
           demoAuth.clear();
+          localStorage.removeItem("aurevia_api_token");
           navigate({ to: "/auth/login" });
           onNav?.();
         }}

@@ -50,6 +50,7 @@ import {
   type Customer,
 } from "@/lib/bank-store";
 import { SupportInbox } from "@/components/support/SupportInbox";
+import { apiRequest } from "@/lib/api";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -114,19 +115,19 @@ const navigation: NavItem[] = [
     icon: ShieldAlert,
     group: "Customers",
   },
-  { id: "deposits", label: "Deposits", icon: ArrowDownLeft, group: "Banking" },
-  {
-    id: "transfers",
-    label: "Transfers",
-    icon: ArrowLeftRight,
-    group: "Banking",
-  },
-  {
-    id: "transactions",
-    label: "Transactions",
-    icon: Activity,
-    group: "Banking",
-  },
+  // { id: "deposits", label: "Deposits", icon: ArrowDownLeft, group: "Banking" },
+  // {
+  //   id: "transfers",
+  //   label: "Transfers",
+  //   icon: ArrowLeftRight,
+  //   group: "Banking",
+  // },
+  // {
+  //   id: "transactions",
+  //   label: "Transactions",
+  //   icon: Activity,
+  //   group: "Banking",
+  // },
   {
     id: "support",
     label: "Support Inbox",
@@ -145,7 +146,44 @@ function AdminPage() {
   const [ok, setOk] = useState<boolean | null>(null);
 
   useEffect(() => {
-    setOk(adminAuth.get());
+    let cancelled = false;
+
+    const checkAdminSession = async () => {
+      const token = localStorage.getItem("aurevia_admin_api_token");
+
+      if (!token) {
+        adminAuth.clear();
+        if (!cancelled) setOk(false);
+        return;
+      }
+
+      try {
+        const data = await apiRequest<{
+          id: number;
+          role: string;
+        }>("/user", {
+          method: "GET",
+          token,
+        });
+
+        if (data.role !== "admin") {
+          throw new Error("Administrator access required.");
+        }
+
+        if (!cancelled) setOk(true);
+      } catch {
+        localStorage.removeItem("aurevia_admin_api_token");
+        adminAuth.clear();
+
+        if (!cancelled) setOk(false);
+      }
+    };
+
+    checkAdminSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (ok === null) return null;
@@ -168,22 +206,60 @@ function AdminPage() {
 }
 
 function Login({ onIn }: { onIn: () => void }) {
-  const [u, setU] = useState("admin");
-  const [p, setP] = useState("admin1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (loading) return;
+
+    setLoading(true);
+
+    try {
+      const data = await apiRequest<{
+        message: string;
+        user: {
+          id: number;
+          name: string;
+          email: string;
+          role: string;
+        };
+        token: string;
+      }>("/admin/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
+      });
+
+      if (data.user.role !== "admin") {
+        throw new Error("Access denied. Administrators only.");
+      }
+
+      localStorage.setItem("aurevia_admin_api_token", data.token);
+
+      toast.success("Administrator login successful!");
+
+      onIn();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to sign in. Please try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="grid min-h-screen place-items-center bg-muted/40 p-4">
       <form
         className="w-full max-w-sm space-y-4 rounded-3xl border border-border bg-card p-8 shadow-lg"
-        onSubmit={(e) => {
-          e.preventDefault();
-
-          if (u === "admin" && p === "admin1234") {
-            onIn();
-          } else {
-            toast.error("Invalid admin credentials");
-          }
-        }}
+        onSubmit={handleLogin}
       >
         <Logo />
 
@@ -193,22 +269,35 @@ function Login({ onIn }: { onIn: () => void }) {
         </h1>
 
         <div className="space-y-1.5">
-          <Label htmlFor="u">Username</Label>
-          <Input id="u" value={u} onChange={(e) => setU(e.target.value)} />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="p">Password</Label>
+          <Label htmlFor="admin-email">Email address</Label>
           <Input
-            id="p"
-            type="password"
-            value={p}
-            onChange={(e) => setP(e.target.value)}
+            id="admin-email"
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Enter admin email"
+            required
+            disabled={loading}
           />
         </div>
 
-        <Button type="submit" className="w-full">
-          Sign in
+        <div className="space-y-1.5">
+          <Label htmlFor="admin-password">Password</Label>
+          <Input
+            id="admin-password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Enter admin password"
+            required
+            disabled={loading}
+          />
+        </div>
+
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading ? "Signing in..." : "Sign in"}
         </Button>
 
         <Link
@@ -365,18 +454,7 @@ function Console({ onOut }: { onOut: () => void }) {
             />
           )}
 
-          {section === "approvals" && (
-            <PlaceholderSection
-              title="Pending Approvals"
-              description="Review customer registration applications and decide whether to activate their accounts."
-              icon={Clock3}
-              items={[
-                "View pending registration applications",
-                "Review customer details before approval",
-                "Approve or reject applications",
-              ]}
-            />
-          )}
+          {section === "approvals" && <PendingApprovalsSection />}
 
           {section === "restricted" && (
             <PlaceholderSection
@@ -445,6 +523,237 @@ function Console({ onOut }: { onOut: () => void }) {
           )}
         </main>
       </div>
+    </div>
+  );
+}
+
+function PendingApprovalsSection() {
+  type PendingCustomer = {
+    id: number;
+    name: string;
+    email: string;
+    email_verified_at: string | null;
+    status: string;
+    created_at: string;
+  };
+
+  const [customers, setCustomers] = useState<PendingCustomer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  const loadCustomers = async () => {
+    const token = localStorage.getItem("aurevia_admin_api_token");
+
+    if (!token) {
+      setError("Your administrator session has expired. Please sign in again.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setError("");
+
+      const data = await apiRequest<{
+        customers: PendingCustomer[];
+      }>("/admin/customers/pending", {
+        method: "GET",
+        token,
+      });
+
+      setCustomers(data.customers);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load pending applications.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadCustomers();
+  }, []);
+
+  const handleDecision = async (
+    customer: PendingCustomer,
+    decision: "approve" | "reject",
+  ) => {
+    const action = decision === "approve" ? "approve" : "reject";
+
+    const confirmed = window.confirm(
+      `Are you sure you want to ${action} ${customer.name}'s application?`,
+    );
+
+    if (!confirmed) return;
+
+    const token = localStorage.getItem("aurevia_admin_api_token");
+
+    if (!token) {
+      toast.error("Your administrator session has expired. Please sign in again.");
+      return;
+    }
+
+    setProcessingId(customer.id);
+
+    try {
+      const result = await apiRequest<{ message: string }>(
+        `/admin/customers/${customer.id}/${action}`,
+        {
+          method: "PATCH",
+          token,
+        },
+      );
+
+      toast.success(result.message);
+      await loadCustomers();
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : `Unable to ${action} this application.`,
+      );
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold">
+            Pending Approvals
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review customer registrations before activating their accounts.
+          </p>
+        </div>
+
+        <Button
+          variant="outline"
+          onClick={() => void loadCustomers()}
+          disabled={loading || processingId !== null}
+        >
+          Refresh
+        </Button>
+      </div>
+
+      {loading && (
+        <div className="rounded-xl border border-border bg-card p-6">
+          Loading customer applications...
+        </div>
+      )}
+
+      {!loading && error && (
+        <div className="space-y-3 rounded-xl border border-destructive/30 bg-card p-6">
+          <p className="text-sm text-destructive">{error}</p>
+
+          <Button
+            variant="outline"
+            onClick={() => {
+              setLoading(true);
+              void loadCustomers();
+            }}
+          >
+            Try Again
+          </Button>
+        </div>
+      )}
+
+      {!loading && !error && customers.length === 0 && (
+        <div className="rounded-xl border border-border bg-card p-8 text-center">
+          <h3 className="font-semibold">No pending applications</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            New customer registrations awaiting approval will appear here.
+          </p>
+        </div>
+      )}
+
+      {!loading && !error && customers.length > 0 && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {customers.length} application(s) awaiting review
+          </p>
+
+          {customers.map((customer) => (
+            <div
+              key={customer.id}
+              className="rounded-xl border border-border bg-card p-5"
+            >
+              <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold">
+                    {customer.name}
+                  </h3>
+
+                  <p className="text-sm text-muted-foreground">
+                    {customer.email}
+                  </p>
+
+                  <p className="text-sm">
+                    Email verification:{" "}
+                    <span
+                      className={
+                        customer.email_verified_at
+                          ? "font-medium text-emerald-600"
+                          : "font-medium text-amber-600"
+                      }
+                    >
+                      {customer.email_verified_at
+                        ? "Verified"
+                        : "Not verified"}
+                    </span>
+                  </p>
+
+                  <p className="text-sm text-muted-foreground">
+                    Registered:{" "}
+                    {new Date(customer.created_at).toLocaleDateString()}
+                  </p>
+
+                  <p className="text-xs text-muted-foreground">
+                    Customer ID: {customer.id}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    disabled={
+                      processingId !== null ||
+                      !customer.email_verified_at
+                    }
+                    onClick={() =>
+                      void handleDecision(customer, "approve")
+                    }
+                  >
+                    {processingId === customer.id
+                      ? "Processing..."
+                      : "Approve"}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    disabled={processingId !== null}
+                    onClick={() =>
+                      void handleDecision(customer, "reject")
+                    }
+                  >
+                    Reject
+                  </Button>
+                </div>
+              </div>
+
+              {!customer.email_verified_at && (
+                <p className="mt-4 text-xs text-amber-600">
+                  This customer must verify their email before approval.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -607,7 +916,7 @@ function Overview({
           </p>
         </DashboardCard>
 
-        <DashboardCard>
+        {/* <DashboardCard>
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">Customer balances</p>
             <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-600">
@@ -620,9 +929,9 @@ function Overview({
           <p className="mt-2 text-xs text-muted-foreground">
             Sum of account balances
           </p>
-        </DashboardCard>
+        </DashboardCard> */}
 
-        <DashboardCard>
+        {/* <DashboardCard>
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">Manual adjustments</p>
             <div className="rounded-xl bg-blue-500/10 p-2 text-blue-600">
@@ -635,9 +944,9 @@ function Overview({
           <p className="mt-2 text-xs text-muted-foreground">
             Recorded balance changes
           </p>
-        </DashboardCard>
+        </DashboardCard> */}
 
-        <DashboardCard>
+        {/* <DashboardCard>
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">Account controls</p>
             <div className="rounded-xl bg-amber-500/10 p-2 text-amber-600">
@@ -648,7 +957,7 @@ function Overview({
           <p className="mt-2 text-xs text-muted-foreground">
             Approval and restriction logic pending
           </p>
-        </DashboardCard>
+        </DashboardCard> */}
       </div>
 
       {/* Quick actions */}
@@ -673,12 +982,12 @@ function Overview({
             description="Prepare to review registration requests."
             onClick={() => onNavigate("approvals")}
           />
-          <QuickAction
+          {/* <QuickAction
             icon={ArrowDownLeft}
             title="Deposit records"
             description="Open deposit management."
             onClick={() => onNavigate("deposits")}
-          />
+          /> */}
           <QuickAction
             icon={Headphones}
             title="Support inbox"

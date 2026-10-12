@@ -1,7 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 // import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { ChevronDown, Download, Send } from "lucide-react";
+import { ChevronDown, Download, Send, Building2, ArrowLeftRight, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardCard, PageTitle, TransactionRow } from "@/components/dashboard/ui";
 import { BankingCard } from "@/components/site/primitives";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { demoAuth, usd } from "@/lib/demo-data";
 import { useMyAccounts } from "@/lib/bank-store";
+import { useRealAccount } from "../lib/use-real-account";
 
 export const Route = createFileRoute("/dashboard/")({ head: () => ({ meta: [
   { title: "Overview — Aurevia Bank" },
@@ -28,7 +29,11 @@ const recent = [
 // const colors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
 function Overview() {
-  const accts = useMyAccounts(demoAuth.get()?.email);
+  const navigate = useNavigate();
+  const { account, loading, error } = useRealAccount();
+
+  const [showTransferOptions, setShowTransferOptions] = useState(false);
+  const [transferMethod, setTransferMethod] = useState<"aurevia" | "wire" | null>(null);
   const name = demoAuth.get()?.name ?? "there";
   const [amt, setAmt] = useState("");
   const [showBalances, setShowBalances] = useState(false);
@@ -48,8 +53,15 @@ function Overview() {
               <p className="text-sm text-navy-foreground/70">Total Balance</p>
 
               <p className="mt-2 font-display text-3xl font-semibold">
-                {usd(accts[0]!.balance + accts[1]!.balance + accts[2]!.balance)}
+                {loading
+                ? "Loading..."
+                : account
+                  ? usd(Number(account.balance))
+                  : "—"}
               </p>
+              {error && (
+                <p className="mt-2 text-sm text-red-300">{error}</p>
+              )}
 
               <p className="mt-2 text-xs text-navy-foreground/70">
                 {showBalances ? "Hide account breakdown" : "Click to view account breakdown"}
@@ -65,33 +77,49 @@ function Overview() {
         </button>
 
         {showBalances && (
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              ["Available Balance", accts[0]!.balance],
-              ["Savings", accts[1]!.balance],
-              ["Investments", accts[2]!.balance],
-            ].map(([label, balance]) => (
-              <div key={label as string} className="card-surface p-5">
-                <p className="text-sm text-muted-foreground">
-                  {label as string}
-                </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="card-surface p-5">
+              <p className="text-sm text-muted-foreground">
+                USD Account Balance
+              </p>
 
-                <p className="mt-2 font-display text-xl font-semibold">
-                  {usd(balance as number)}
-                </p>
-              </div>
-            ))}
+              <p className="mt-2 font-display text-xl font-semibold">
+                {loading
+                  ? "Loading..."
+                  : account
+                    ? usd(Number(account.balance))
+                    : "—"}
+              </p>
+            </div>
+
+            <div className="card-surface p-5">
+              <p className="text-sm text-muted-foreground">
+                Account Number
+              </p>
+
+              <p className="mt-2 font-display text-xl font-semibold">
+                {account?.account_number ?? "Unavailable"}
+              </p>
+
+              <p className="mt-2 text-xs text-muted-foreground">
+                Status: {account?.status ?? "Unavailable"}
+              </p>
+            </div>
           </div>
         )}
       </div>
       <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-        <Link
-          to="/dashboard/withdraw"
+        <button
+          type="button"
+          onClick={() => {
+            setTransferMethod(null);
+            setShowTransferOptions(true);
+          }}
           className="card-surface flex items-center justify-center gap-2 rounded-2xl p-4 text-sm font-semibold transition hover:-translate-y-0.5 hover:shadow-elegant"
         >
           <Send className="h-4 w-4 text-primary" />
-          Withdraw
-        </Link>
+          Transfer
+        </button>
 
         <Link
           to="/dashboard/deposit"
@@ -142,6 +170,165 @@ function Overview() {
           <BankingCard name={name} />
         </DashboardCard>
       </div>
+
+      {/* Transfer Method Selection */}
+      {showTransferOptions && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={() => setShowTransferOptions(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transfer-modal-title"
+            className="w-full max-w-lg rounded-3xl border border-border bg-background p-6 shadow-2xl sm:p-8"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h2
+                  id="transfer-modal-title"
+                  className="text-xl font-semibold sm:text-2xl"
+                >
+                  Choose Transfer Method
+                </h2>
+
+                <p className="mt-2 text-sm text-muted-foreground">
+                  How would you like to send your money?
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowTransferOptions(false)}
+                aria-label="Close transfer selection"
+                className="rounded-full p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Aurevia Account */}
+              <button
+                type="button"
+                aria-pressed={transferMethod === "aurevia"}
+                onClick={() => setTransferMethod("aurevia")}
+                className={`w-full rounded-2xl border-2 p-4 text-left transition-all duration-200 ${
+                  transferMethod === "aurevia"
+                    ? "border-primary bg-primary/10 shadow-md"
+                    : "border-border bg-card hover:border-primary/50"
+                }`}
+              >
+                <div className="flex items-center gap-4">
+                  <div
+                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
+                      transferMethod === "aurevia"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-foreground"
+                    }`}
+                  >
+                    <ArrowLeftRight className="h-6 w-6" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-semibold">Aurevia Account</h3>
+
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Send money to another Aurevia customer using their account number.
+                    </p>
+                  </div>
+
+                  <div
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                      transferMethod === "aurevia"
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/40"
+                    }`}
+                  >
+                    {transferMethod === "aurevia" && (
+                      <Check className="h-4 w-4" />
+                    )}
+                  </div>
+                </div>
+              </button>
+
+              {/* Wire Transfer */}
+              <button
+                type="button"
+                aria-pressed={transferMethod === "wire"}
+                onClick={() => setTransferMethod("wire")}
+                className={`w-full rounded-2xl border-2 p-4 text-left transition-all duration-200 ${
+                  transferMethod === "wire"
+                    ? "border-primary bg-primary/10 shadow-md"
+                    : "border-border bg-card hover:border-primary/50"
+                }`}
+              >
+                <div className="flex items-center gap-4">
+                  <div
+                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
+                      transferMethod === "wire"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-foreground"
+                    }`}
+                  >
+                    <Building2 className="h-6 w-6" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-semibold">Wire Transfer</h3>
+
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Send a transfer request to an account at another bank.
+                    </p>
+                  </div>
+
+                  <div
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                      transferMethod === "wire"
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/40"
+                    }`}
+                  >
+                    {transferMethod === "wire" && (
+                      <Check className="h-4 w-4" />
+                    )}
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => setShowTransferOptions(false)}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                variant="hero"
+                className="rounded-xl"
+                disabled={!transferMethod}
+                onClick={() => {
+                  if (transferMethod === "aurevia") {
+                    setShowTransferOptions(false);
+                    void navigate({ to: "/dashboard/transfers" });
+                  } else if (transferMethod === "wire") {
+                    setShowTransferOptions(false);
+                    void navigate({ to: "/dashboard/withdraw" });
+                  }
+                }}
+              >
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
