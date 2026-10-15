@@ -56,7 +56,7 @@ const nav = [
 { label: "Cards", to: "/dashboard/cards", icon: CreditCard },
 { label: "Transactions", to: "/dashboard/transactions", icon: List },
 { label: "Settings", to: "/dashboard/settings", icon: Settings },
-{ label: "Support", to: "/faq", icon: Headphones },
+// { label: "Support", to: "/faq", icon: Headphones },
 ] as const;
 
 

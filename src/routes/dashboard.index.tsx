@@ -1,46 +1,148 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-// import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { ChevronDown, Download, Send, Building2, ArrowLeftRight, Check, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  ChevronDown,
+  Download,
+  Send,
+  Building2,
+  ArrowLeftRight,
+  Check,
+  X,
+  ArrowDownLeft,
+  ArrowUpRight,
+  RefreshCw,
+} from "lucide-react";
 import { toast } from "sonner";
-import { DashboardCard, PageTitle, TransactionRow } from "@/components/dashboard/ui";
+import { DashboardCard, PageTitle } from "@/components/dashboard/ui";
+import { TransactionReceipt } from "@/components/dashboard/transaction-receipt";
 import { BankingCard } from "@/components/site/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { demoAuth, usd } from "@/lib/demo-data";
-import { useMyAccounts } from "@/lib/bank-store";
 import { useRealAccount } from "../lib/use-real-account";
+import { useRealTransactions } from "../lib/use-real-transactions";
+import type { RealTransaction } from "../lib/use-real-transactions";
 
-export const Route = createFileRoute("/dashboard/")({ head: () => ({ meta: [
-  { title: "Overview — Aurevia Bank" },
-  { name: "description", content: "Overview for your Aurevia Bank account." },
-  { property: "og:title", content: "Overview — Aurevia Bank" },
-  { property: "og:description", content: "Overview for your Aurevia Bank account." },
-  { property: "og:type", content: "website" },
-  { name: "twitter:card", content: "summary" },
-] }), component: Overview });
+export const Route = createFileRoute("/dashboard/")({
+  head: () => ({
+    meta: [
+      { title: "Overview — Aurevia Bank" },
+      {
+        name: "description",
+        content: "Overview for your Aurevia Bank account.",
+      },
+      { property: "og:title", content: "Overview — Aurevia Bank" },
+      {
+        property: "og:description",
+        content: "Overview for your Aurevia Bank account.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
+  component: Overview,
+});
 
-const recent = [
-  { name: "Incoming Transfer", amount: 2450, category: "Transfer", date: "Sep 30" },
-  { name: "Apple Store", amount: -999, category: "Shopping", date: "Sep 29" },
-  { name: "Netflix", amount: -15.99, category: "Entertainment", date: "Sep 28" },
-  { name: "Salary", amount: 4500, category: "Income", date: "Sep 27" },
-];
-// const colors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
+function formatTransactionDate(date: string) {
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Date unavailable";
+  }
+
+  return parsedDate.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatTransactionType(type: string) {
+  switch (type.toLowerCase()) {
+    case "transfer":
+      return "Transfer";
+    case "deposit":
+      return "Deposit";
+    case "withdrawal":
+      return "Withdrawal";
+    default:
+      return type.replace(/_/g, " ");
+  }
+}
+
+function getTransactionDescription(transaction: RealTransaction) {
+  if (transaction.description?.trim()) {
+    return transaction.description;
+  }
+
+  const type = formatTransactionType(transaction.type);
+
+  if (transaction.counterparty_account_number) {
+    return `${type} · Account ${transaction.counterparty_account_number}`;
+  }
+
+  return type;
+}
+
+function getStatusClasses(status: string) {
+  switch (status.toLowerCase()) {
+    case "completed":
+      return "bg-emerald-500/10 text-emerald-600";
+
+    case "pending":
+      return "bg-amber-500/10 text-amber-600";
+
+    case "failed":
+    case "rejected":
+      return "bg-red-500/10 text-red-600";
+
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+}
 
 function Overview() {
   const navigate = useNavigate();
+
   const { account, loading, error } = useRealAccount();
 
+  const {
+    transactions,
+    loading: transactionsLoading,
+    error: transactionsError,
+    refresh: refreshTransactions,
+  } = useRealTransactions();
+
   const [showTransferOptions, setShowTransferOptions] = useState(false);
-  const [transferMethod, setTransferMethod] = useState<"aurevia" | "wire" | null>(null);
+  const [transferMethod, setTransferMethod] = useState<
+    "aurevia" | "wire" | null
+  >(null);
+
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<RealTransaction | null>(null);
+
   const name = demoAuth.get()?.name ?? "there";
+
   const [amt, setAmt] = useState("");
   const [showBalances, setShowBalances] = useState(false);
-  const act = (l: string) => toast(`${l} is not available yet`, { description: "" });
+
+  const recentTransactions = useMemo(() => {
+    return [...transactions]
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() -
+          new Date(a.created_at).getTime(),
+      )
+      .slice(0, 5);
+  }, [transactions]);
+
   return (
     <div className="space-y-6">
-      <PageTitle title={`Welcome back, ${name.split(" ")[0]}`} subtitle="Here's your financial overview." />
+      <PageTitle
+        title={`Welcome back, ${name.split(" ")[0]}`}
+        subtitle="Here's your financial overview."
+      />
+
+      {/* Total Balance */}
       <div className="space-y-3">
         <button
           type="button"
@@ -50,21 +152,26 @@ function Overview() {
         >
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm text-navy-foreground/70">Total Balance</p>
+              <p className="text-sm text-navy-foreground/70">
+                Total Balance
+              </p>
 
               <p className="mt-2 font-display text-3xl font-semibold">
                 {loading
-                ? "Loading..."
-                : account
-                  ? usd(Number(account.balance))
-                  : "—"}
+                  ? "Loading..."
+                  : account
+                    ? usd(Number(account.balance))
+                    : "—"}
               </p>
+
               {error && (
                 <p className="mt-2 text-sm text-red-300">{error}</p>
               )}
 
               <p className="mt-2 text-xs text-navy-foreground/70">
-                {showBalances ? "Hide account breakdown" : "Click to view account breakdown"}
+                {showBalances
+                  ? "Hide account breakdown"
+                  : "Click to view account breakdown"}
               </p>
             </div>
 
@@ -108,6 +215,8 @@ function Overview() {
           </div>
         )}
       </div>
+
+      {/* Quick Actions */}
       <div className="grid grid-cols-2 gap-3 sm:max-w-md">
         <button
           type="button"
@@ -130,46 +239,220 @@ function Overview() {
         </Link>
       </div>
 
-
-      {/* <div className="grid gap-6 xl:grid-cols-3">
-        <DashboardCard title="Balance" className="xl:col-span-2">
-          <div className="h-64">
-            <ResponsiveContainer>
-              <AreaChart data={balanceSeries}>
-                <defs><linearGradient id="bal" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--primary)" stopOpacity={0.3} /><stop offset="1" stopColor="var(--primary)" stopOpacity={0} /></linearGradient></defs>
-                <XAxis dataKey="month" axisLine={false} tickLine={false} fontSize={12} />
-                <Tooltip formatter={(v: number) => usd(v)} />
-                <Area dataKey="balance" stroke="var(--primary)" strokeWidth={2.5} fill="url(#bal)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </DashboardCard>
-        <DashboardCard title="Spending">
-          <div className="h-44">
-            <ResponsiveContainer>
-              <PieChart><Pie data={spending} dataKey="value" innerRadius={50} outerRadius={75} paddingAngle={3}>{spending.map((_, i) => <Cell key={i} fill={colors[i]} />)}</Pie><Tooltip formatter={(v: number) => usd(v)} /></PieChart>
-            </ResponsiveContainer>
-          </div>
-          <ul className="mt-2 space-y-1.5 text-sm">{spending.map((s, i) => <li key={s.name} className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: colors[i] }} />{s.name}<span className="ml-auto font-medium">{usd(s.value)}</span></li>)}</ul>
-        </DashboardCard>
-      </div> */}
+      {/* Dashboard Cards */}
       <div className="grid gap-6 xl:grid-cols-3">
-        <DashboardCard title="Recent Transactions" action={<Link to="/dashboard/transactions" className="text-sm font-semibold text-primary">View all</Link>}>
-          <ul className="divide-y divide-border">{recent.map((t) => <TransactionRow key={t.name} t={t} />)}</ul>
+        {/* Recent Transactions */}
+        <DashboardCard
+          title="Recent Transactions"
+          action={
+            <Link
+              to="/dashboard/transactions"
+              className="text-sm font-semibold text-primary"
+            >
+              View all
+            </Link>
+          }
+        >
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Your latest account activity
+            </p>
+
+            <button
+              type="button"
+              onClick={() => void refreshTransactions()}
+              disabled={transactionsLoading}
+              aria-label="Refresh recent transactions"
+              title="Refresh transactions"
+              className="rounded-full p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${
+                  transactionsLoading ? "animate-spin" : ""
+                }`}
+              />
+            </button>
+          </div>
+
+          {transactionsLoading && transactions.length === 0 ? (
+            <div className="space-y-4 py-6">
+              {[1, 2, 3].map((item) => (
+                <div
+                  key={item}
+                  className="flex animate-pulse items-center gap-3"
+                >
+                  <div className="h-10 w-10 rounded-full bg-muted" />
+
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-32 rounded bg-muted" />
+                    <div className="h-2 w-20 rounded bg-muted" />
+                  </div>
+
+                  <div className="h-4 w-16 rounded bg-muted" />
+                </div>
+              ))}
+            </div>
+          ) : transactionsError && transactions.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                Unable to load your recent transactions.
+              </p>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => void refreshTransactions()}
+              >
+                Try again
+              </Button>
+            </div>
+          ) : recentTransactions.length === 0 ? (
+            <div className="py-10 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <ArrowLeftRight className="h-5 w-5 text-muted-foreground" />
+              </div>
+
+              <p className="mt-3 font-medium">No transactions yet</p>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                Your recent account activity will appear here.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {recentTransactions.map((transaction) => {
+                const isCredit = transaction.direction === "credit";
+                const status = transaction.status.toLowerCase();
+
+                return (
+                  <li key={transaction.reference}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTransaction(transaction)}
+                      className="flex w-full items-center gap-3 py-4 text-left transition hover:bg-muted/40"
+                    >
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                          isCredit
+                            ? "bg-emerald-500/10 text-emerald-600"
+                            : "bg-muted text-foreground"
+                        }`}
+                      >
+                        {isCredit ? (
+                          <ArrowDownLeft className="h-5 w-5" />
+                        ) : (
+                          <ArrowUpRight className="h-5 w-5" />
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">
+                          {getTransactionDescription(transaction)}
+                        </p>
+
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {formatTransactionDate(
+                              transaction.created_at,
+                            )}
+                          </span>
+
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${getStatusClasses(
+                              status,
+                            )}`}
+                          >
+                            {status}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 text-right">
+                        <p
+                          className={`text-sm font-semibold ${
+                            isCredit ? "text-emerald-600" : ""
+                          }`}
+                        >
+                          {isCredit ? "+" : "−"}
+                          {usd(Number(transaction.amount))}
+                        </p>
+
+                        <p className="mt-1 text-[10px] capitalize text-muted-foreground">
+                          {formatTransactionType(transaction.type)}
+                        </p>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {transactionsError && transactions.length > 0 && (
+            <p className="mt-3 text-xs text-amber-600">
+              Refresh failed. Showing the transactions already loaded.
+            </p>
+          )}
         </DashboardCard>
-        <DashboardCard title="Savings Goal">
-          <p className="text-sm text-muted-foreground">Emergency fund</p>
-          <div className="mt-4 h-2.5 rounded-full bg-muted"><div className="h-2.5 w-[78%] rounded-full bg-gradient-primary" /></div>
-          <h3 className="mt-8 text-sm font-semibold">Quick Transfer</h3>
-          <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (!Number(amt)) { toast.error("Enter an amount"); return; } toast.success(`Sent ${usd(Number(amt))}`); setAmt(""); }}>
-            <Input aria-label="Amount" inputMode="decimal" placeholder="$0.00" value={amt} onChange={(e) => setAmt(e.target.value)} className="rounded-full" />
-            <Button variant="hero" type="submit">Send</Button>
+
+        {/* Quick Transfer */}
+        {/* <DashboardCard title="Quick Transfer">
+          <p className="text-sm text-muted-foreground">
+            Send money quickly to another Aurevia account.
+          </p>
+
+          <form
+            className="mt-4 flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+
+              if (!Number(amt) || Number(amt) <= 0) {
+                toast.error("Enter a valid amount");
+                return;
+              }
+
+              setAmt("");
+              void navigate({ to: "/dashboard/transfers" });
+            }}
+          >
+            <Input
+              aria-label="Amount"
+              inputMode="decimal"
+              placeholder="$0.00"
+              value={amt}
+              onChange={(event) => setAmt(event.target.value)}
+              className="rounded-full"
+            />
+
+            <Button variant="hero" type="submit">
+              Send
+            </Button>
           </form>
-        </DashboardCard>
-        <DashboardCard title="My Card" action={<Link to="/dashboard/cards" className="text-sm font-semibold text-primary">Manage</Link>}>
+        </DashboardCard> */}
+
+        {/* My Card */}
+        <DashboardCard
+          title="My Card"
+          action={
+            <Link
+              to="/dashboard/cards"
+              className="text-sm font-semibold text-primary"
+            >
+              Manage
+            </Link>
+          }
+        >
           <BankingCard name={name} />
         </DashboardCard>
       </div>
+
+      {/* Transaction Receipt */}
+      <TransactionReceipt
+        transaction={selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+      />
 
       {/* Transfer Method Selection */}
       {showTransferOptions && (
@@ -235,7 +518,8 @@ function Overview() {
                     <h3 className="font-semibold">Aurevia Account</h3>
 
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Send money to another Aurevia customer using their account number.
+                      Send money to another Aurevia customer using their
+                      account number.
                     </p>
                   </div>
 

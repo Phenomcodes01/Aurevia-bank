@@ -52,6 +52,32 @@ import {
 import { SupportInbox } from "@/components/support/SupportInbox";
 import { apiRequest } from "@/lib/api";
 
+
+type AdminCustomer = Customer & {
+  id: number;
+  status: string;
+  accountId: number | null;
+  accountNumber: string | null;
+  accountCurrency: string;
+  accountStatus: string | null;
+};
+
+type AdminAccount = {
+id: number;
+user_id: number;
+account_number: string;
+balance: string | number;
+currency: string;
+status: "active" | "frozen" | "closed";
+user: {
+id: number;
+name: string;
+email: string;
+status: string;
+} | null;
+};
+
+
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
@@ -86,8 +112,10 @@ type AdminSection =
   | "overview"
   | "customers"
   | "approvals"
+  | "wireTransfers"
   | "restricted"
   | "deposits"
+  | "bitcoinDeposits"
   | "transfers"
   | "transactions"
   | "support"
@@ -108,6 +136,18 @@ const navigation: NavItem[] = [
     label: "Pending Approvals",
     icon: Clock3,
     group: "Customers",
+  },
+  {
+    id: "wireTransfers",
+    label: "Wire Transfers",
+    icon: ArrowUpRight,
+    group: "Banking",
+  },
+  {
+    id: "bitcoinDeposits",
+    label: "Bitcoin Deposits",
+    icon: Wallet,
+    group: "Banking",
   },
   {
     id: "restricted",
@@ -312,7 +352,67 @@ function Login({ onIn }: { onIn: () => void }) {
 }
 
 function Console({ onOut }: { onOut: () => void }) {
-  const customers = useCustomers();
+  const [customers, setCustomers] = useState<AdminCustomer[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(true);
+
+  async function loadCustomers() {
+    const token = localStorage.getItem("aurevia_admin_api_token");
+
+    if (!token) {
+      toast.error("Admin session expired. Please sign in again.");
+      setCustomersLoading(false);
+      return;
+    }
+
+    try {
+      const response = await apiRequest<{
+        customers: Array<{
+          id: number;
+          name: string;
+          email: string;
+          status: string;
+          account: {
+            id: number;
+            account_number: string;
+            balance: string | number;
+            currency: string;
+            status: string;
+          } | null;
+        }>;
+      }>("/admin/customers", { token });
+
+      setCustomers(
+        response.customers.map((customer) => ({
+          id: customer.id,
+          name: customer.name,
+          email: customer.email,
+          status: customer.status,
+          accountId: customer.account?.id ?? null,
+          accountNumber: customer.account?.account_number ?? null,
+          accountCurrency: customer.account?.currency ?? "USD",
+          accountStatus: customer.account?.status ?? null,
+          balances: {
+            chk: Number(customer.account?.balance ?? 0),
+            sav: 0,
+            inv: 0,
+          },
+          history: [],
+        })),
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to load customers.",
+      );
+    } finally {
+      setCustomersLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadCustomers();
+  }, []);
 
   const [section, setSection] = useState<AdminSection>("overview");
   const [customerSearch, setCustomerSearch] = useState("");
@@ -320,24 +420,8 @@ function Console({ onOut }: { onOut: () => void }) {
 
   const totalBalances = customers.reduce((sum, c) => sum + total(c), 0);
 
-  const adjustmentCount = customers.reduce(
-    (sum, c) => sum + c.history.length,
-    0,
-  );
-
-  const recentAdjustments = customers
-    .flatMap((customer) =>
-      customer.history.map((entry) => ({
-        ...entry,
-        customerName: customer.name,
-        customerEmail: customer.email,
-      })),
-    )
-    .sort(
-      (a, b) =>
-        new Date(b.date).getTime() - new Date(a.date).getTime(),
-    )
-    .slice(0, 6);
+  const adjustmentCount = 0;
+  const recentAdjustments: Adjustment[] = [];
 
   const filteredCustomers = customers.filter((customer) =>
     `${customer.name} ${customer.email}`
@@ -451,23 +535,16 @@ function Console({ onOut }: { onOut: () => void }) {
               customers={filteredCustomers}
               search={customerSearch}
               onSearch={setCustomerSearch}
+              onUpdated={loadCustomers}
+              loading={customersLoading}
             />
           )}
 
           {section === "approvals" && <PendingApprovalsSection />}
+          {section === "wireTransfers" && <WireTransfersSection />}
+          {section === "bitcoinDeposits" && <BitcoinDepositsSection />}
 
-          {section === "restricted" && (
-            <PlaceholderSection
-              title="Restricted Accounts"
-              description="Review accounts that have been restricted and manage access when account-status controls are connected."
-              icon={ShieldAlert}
-              items={[
-                "Review restricted customer accounts",
-                "Inspect restriction reasons",
-                "Restore access when appropriate",
-              ]}
-            />
-          )}
+          {section === "restricted" && <RestrictedAccountsSection />}
 
           {section === "deposits" && (
             <PlaceholderSection
@@ -1099,120 +1176,392 @@ function QuickAction({
 }
 
 function CustomersSection({
-  customers,
-  search,
-  onSearch,
+customers,
+search,
+onSearch,
+onUpdated,
+loading,
 }: {
-  customers: Customer[];
-  search: string;
-  onSearch: (value: string) => void;
+customers: AdminCustomer[];
+search: string;
+onSearch: (value: string) => void;
+onUpdated: () => Promise<void>;
+loading: boolean;
 }) {
-  const [selectedEmail, setSelectedEmail] = useState("");
-  const current =
-    customers.find((customer) => customer.email === selectedEmail) ??
-    customers[0];
+const [selectedEmail, setSelectedEmail] = useState("");
 
-  return (
-    <div className="space-y-6">
-      <PageTitle
-        title="All Customers"
-        subtitle="Search customers, review their account balances and manage balance adjustments."
-      />
+const current =
+customers.find((customer) => customer.email === selectedEmail) ??
+customers[0];
 
-      <div className="grid items-start gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-        <DashboardCard
-          title="Customer directory"
-          action={
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-              {customers.length} customers
-            </span>
-          }
-        >
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Search customers"
-              placeholder="Search name or email…"
-              value={search}
-              onChange={(event) => onSearch(event.target.value)}
-              className="pl-9"
-            />
-          </div>
+return ( <div className="space-y-6"> <PageTitle
+     title="All Customers"
+     subtitle="View customer accounts, check USD balances, and manage balance adjustments."
+   />
 
-          <ul className="divide-y divide-border">
-            {customers.map((customer) => (
-              <li key={customer.email}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedEmail(customer.email)}
-                  className={`flex w-full items-center gap-3 rounded-xl px-2 py-3 text-left transition-colors hover:bg-muted ${
-                    current?.email === customer.email ? "bg-muted" : ""
-                  }`}
-                >
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-primary text-sm font-semibold text-primary-foreground">
-                    {customer.name[0]?.toUpperCase()}
-                  </span>
 
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">
-                      {customer.name}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {customer.email}
-                    </span>
-                  </span>
+  <div className="grid items-start gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+    <DashboardCard
+      title="Customer directory"
+      action={
+        <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+          {loading ? "Loading..." : `${customers.length} customers`}
+        </span>
+      }
+    >
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
-                  <span className="text-right">
-                    <span className="block text-sm font-semibold">
-                      {usd(total(customer))}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      Balance
-                    </span>
-                  </span>
-                </button>
-              </li>
-            ))}
-
-            {!customers.length && (
-              <li className="py-8 text-center text-sm text-muted-foreground">
-                <Users className="mx-auto mb-2 h-5 w-5" />
-                No customers found.
-              </li>
-            )}
-          </ul>
-
-          <div className="mt-4 border-t border-border pt-4">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => {
-                store.reset();
-                setSelectedEmail("");
-                toast.success("Account data reset");
-              }}
-            >
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Reset account data
-            </Button>
-          </div>
-        </DashboardCard>
-
-        {current ? (
-          <Editor key={current.email} c={current} />
-        ) : (
-          <DashboardCard>
-            <EmptyState
-              icon={Users}
-              title="Select a customer"
-              description="Choose a customer from the directory to inspect their accounts."
-            />
-          </DashboardCard>
-        )}
+        <Input
+          aria-label="Search customers"
+          placeholder="Search name or email…"
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          className="pl-9"
+        />
       </div>
-    </div>
-  );
+
+      <ul className="divide-y divide-border">
+        {loading ? (
+          <li className="py-8 text-center text-sm text-muted-foreground">
+            Loading customers from the server...
+          </li>
+        ) : (
+          customers.map((customer) => (
+            <li key={customer.id}>
+              <button
+                type="button"
+                onClick={() => setSelectedEmail(customer.email)}
+                className={`flex w-full items-center gap-3 rounded-xl px-2 py-3 text-left transition-colors hover:bg-muted ${
+                  current?.email === customer.email ? "bg-muted" : ""
+                }`}
+              >
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-primary text-sm font-semibold text-primary-foreground">
+                  {customer.name[0]?.toUpperCase()}
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">
+                    {customer.name}
+                  </span>
+
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {customer.email}
+                  </span>
+
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    {customer.accountNumber
+                      ? `Account: ${customer.accountNumber}`
+                      : "No account assigned"}
+                  </span>
+                </span>
+
+                <span className="text-right">
+                  <span className="block text-sm font-semibold">
+                    {usd(customer.balances.chk)}
+                  </span>
+
+                  <span className="text-[10px] text-muted-foreground">
+                    USD balance
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))
+        )}
+
+        {!loading && customers.length === 0 && (
+          <li className="py-8 text-center text-sm text-muted-foreground">
+            <Users className="mx-auto mb-2 h-5 w-5" />
+            No customers found.
+          </li>
+        )}
+      </ul>
+    </DashboardCard>
+
+    {current && !loading ? (
+      <Editor
+        key={current.email}
+        c={current}
+        onUpdated={onUpdated}
+      />
+    ) : (
+      <DashboardCard>
+        <EmptyState
+          icon={Users}
+          title={loading ? "Loading customers" : "Select a customer"}
+          description={
+            loading
+              ? "Retrieving customer accounts from the server."
+              : "Choose a customer from the directory to manage their account."
+          }
+        />
+      </DashboardCard>
+    )}
+  </div>
+</div>
+
+
+);
 }
+
+
+function RestrictedAccountsSection() {
+const [accounts, setAccounts] = useState<AdminAccount[]>([]);
+const [loading, setLoading] = useState(true);
+const [updatingId, setUpdatingId] = useState<number | null>(null);
+const [filter, setFilter] = useState<"all" | "frozen" | "active">("all");
+
+async function loadAccounts() {
+const token = localStorage.getItem("aurevia_admin_api_token");
+
+
+if (!token) {
+  toast.error("Admin session expired. Please sign in again.");
+  setLoading(false);
+  return;
+}
+
+try {
+  const response = await apiRequest<{ accounts: AdminAccount[] }>(
+    "/admin/accounts",
+    { token },
+  );
+
+  setAccounts(response.accounts);
+} catch (error) {
+  toast.error(
+    error instanceof Error
+      ? error.message
+      : "Unable to load customer accounts.",
+  );
+} finally {
+  setLoading(false);
+}
+
+
+}
+
+useEffect(() => {
+void loadAccounts();
+}, []);
+
+async function changeStatus(account: AdminAccount) {
+const nextStatus = account.status === "frozen" ? "active" : "frozen";
+const action = nextStatus === "frozen" ? "freeze" : "unfreeze";
+
+
+const confirmed = window.confirm(
+  `${action === "freeze" ? "Freeze" : "Unfreeze"} ${account.user?.name ?? "this customer's"} account (${account.account_number})?`,
+);
+
+if (!confirmed) return;
+
+const token = localStorage.getItem("aurevia_admin_api_token");
+
+if (!token) {
+  toast.error("Admin session expired. Please sign in again.");
+  return;
+}
+
+setUpdatingId(account.id);
+
+try {
+  await apiRequest<{ message: string }>(
+    `/admin/accounts/${account.id}/status`,
+    {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ status: nextStatus }),
+    },
+  );
+
+  await loadAccounts();
+
+  toast.success(
+    nextStatus === "frozen"
+      ? "Account frozen successfully."
+      : "Account unfrozen successfully.",
+  );
+} catch (error) {
+  toast.error(
+    error instanceof Error
+      ? error.message
+      : "Unable to update account status.",
+  );
+} finally {
+  setUpdatingId(null);
+}
+
+
+}
+
+const visibleAccounts = accounts.filter((account) => {
+if (filter === "frozen") return account.status === "frozen";
+if (filter === "active") return account.status === "active";
+return true;
+});
+
+const frozenCount = accounts.filter(
+(account) => account.status === "frozen",
+).length;
+
+return ( <div className="space-y-6"> <PageTitle
+     title="Restricted Accounts"
+     subtitle="Review customer account statuses and freeze or restore account access."
+   />
+
+
+  <div className="grid gap-4 sm:grid-cols-3">
+    <DashboardCard title="Total accounts">
+      <p className="text-2xl font-semibold">{accounts.length}</p>
+    </DashboardCard>
+
+    <DashboardCard title="Frozen accounts">
+      <p className="text-2xl font-semibold text-destructive">
+        {frozenCount}
+      </p>
+    </DashboardCard>
+
+    <DashboardCard title="Active accounts">
+      <p className="text-2xl font-semibold text-emerald-600">
+        {accounts.filter((account) => account.status === "active").length}
+      </p>
+    </DashboardCard>
+  </div>
+
+  <DashboardCard
+    title="Customer accounts"
+    action={
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void loadAccounts()}
+        disabled={loading}
+      >
+        <RotateCcw className="mr-2 h-4 w-4" />
+        Refresh
+      </Button>
+    }
+  >
+    <div className="mb-5 flex flex-wrap gap-2">
+      {(["all", "frozen", "active"] as const).map((status) => (
+        <Button
+          key={status}
+          size="sm"
+          variant={filter === status ? "default" : "outline"}
+          onClick={() => setFilter(status)}
+        >
+          {status === "all"
+            ? "All accounts"
+            : status === "frozen"
+              ? "Frozen"
+              : "Active"}
+        </Button>
+      ))}
+    </div>
+
+    {loading ? (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        Loading customer accounts...
+      </p>
+    ) : visibleAccounts.length === 0 ? (
+      <div className="py-10 text-center">
+        <ShieldAlert className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+        <p className="font-medium">No accounts found</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          No accounts match the selected filter.
+        </p>
+      </div>
+    ) : (
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-border text-muted-foreground">
+              <th className="px-3 py-3 font-medium">Customer</th>
+              <th className="px-3 py-3 font-medium">Account number</th>
+              <th className="px-3 py-3 font-medium">Balance</th>
+              <th className="px-3 py-3 font-medium">Status</th>
+              <th className="px-3 py-3 text-right font-medium">Action</th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-border">
+            {visibleAccounts.map((account) => (
+              <tr key={account.id}>
+                <td className="px-3 py-4">
+                  <p className="font-medium">
+                    {account.user?.name ?? "Unknown customer"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {account.user?.email ?? "No email available"}
+                  </p>
+                </td>
+
+                <td className="px-3 py-4 font-mono text-xs">
+                  {account.account_number}
+                </td>
+
+                <td className="px-3 py-4 font-medium">
+                  {account.currency}{" "}
+                  {Number(account.balance).toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </td>
+
+                <td className="px-3 py-4">
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                      account.status === "frozen"
+                        ? "bg-destructive/10 text-destructive"
+                        : account.status === "active"
+                          ? "bg-emerald-500/10 text-emerald-600"
+                          : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {account.status}
+                  </span>
+                </td>
+
+                <td className="px-3 py-4 text-right">
+                  {account.status === "closed" ? (
+                    <span className="text-xs text-muted-foreground">
+                      Closed
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant={
+                        account.status === "frozen"
+                          ? "default"
+                          : "destructive"
+                      }
+                      disabled={updatingId !== null}
+                      onClick={() => void changeStatus(account)}
+                    >
+                      {updatingId === account.id
+                        ? "Updating..."
+                        : account.status === "frozen"
+                          ? "Unfreeze"
+                          : "Freeze"}
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </DashboardCard>
+</div>
+
+
+);
+}
+
+
 
 function PlaceholderSection({
   title,
@@ -1382,172 +1731,1436 @@ function EmptyState({
   );
 }
 
-function Editor({ c }: { c: Customer }) {
-  const [account, setAccount] = useState<AccountId>("chk");
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
+function Editor({
+c,
+onUpdated,
+}: {
+c: AdminCustomer;
+onUpdated: () => Promise<void>;
+}) {
+const [amount, setAmount] = useState("");
+const [isSaving, setIsSaving] = useState(false);
 
-  const apply = (sign: 1 | -1) => {
-    const n = Number(amount);
+const apply = async (sign: 1 | -1) => {
+const n = Number(amount);
 
-    if (!Number.isFinite(n) || n <= 0 || n > 10_000_000) {
-      toast.error("Enter an amount between 0 and 10,000,000");
+
+if (!Number.isFinite(n) || n <= 0 || n > 1_000_000_000) {
+  toast.error("Enter a valid amount greater than 0.");
+  return;
+}
+
+if (!c.accountId) {
+  toast.error("This customer does not have an account to adjust.");
+  return;
+}
+
+const token = localStorage.getItem("aurevia_admin_api_token");
+
+if (!token) {
+  toast.error("Your admin session has expired. Please sign in again.");
+  return;
+}
+
+setIsSaving(true);
+
+try {
+  await apiRequest<{
+    message: string;
+    account: { balance: string | number };
+  }>(`/admin/accounts/${c.accountId}/balance`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({
+      action: sign > 0 ? "add" : "subtract",
+      amount: n,
+    }),
+  });
+
+  await onUpdated();
+
+  toast.success(
+    `${sign > 0 ? "Added" : "Removed"} ${usd(n)} ${
+      sign > 0 ? "to" : "from"
+    } ${c.name}'s USD account.`,
+  );
+
+  setAmount("");
+} catch (error) {
+  toast.error(
+    error instanceof Error
+      ? error.message
+      : "Unable to update the account balance.",
+  );
+} finally {
+  setIsSaving(false);
+}
+
+
+};
+
+return ( <DashboardCard title="Customer account controls"> <div className="mb-5 flex items-center gap-3"> <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-primary text-lg font-semibold text-primary-foreground">
+{c.name[0]?.toUpperCase()} </div>
+
+
+    <div className="min-w-0">
+      <h3 className="font-semibold">{c.name}</h3>
+      <p className="truncate text-sm text-muted-foreground">
+        {c.email}
+      </p>
+    </div>
+  </div>
+
+  <div className="rounded-2xl bg-muted p-4">
+    <p className="text-xs text-muted-foreground">Available USD balance</p>
+    <p className="mt-1 break-words text-2xl font-semibold">
+      {usd(c.balances.chk)}
+    </p>
+  </div>
+
+  <div className="mt-4 space-y-3 rounded-2xl border border-border p-4">
+    <div>
+      <p className="text-xs text-muted-foreground">Account number</p>
+      <p className="font-medium">
+        {c.accountNumber ?? "No account assigned"}
+      </p>
+    </div>
+
+    <div>
+      <p className="text-xs text-muted-foreground">Account status</p>
+      <p className="font-medium capitalize">
+        {c.accountStatus ?? "Unavailable"}
+      </p>
+    </div>
+
+    <div>
+      <p className="text-xs text-muted-foreground">Customer status</p>
+      <p className="font-medium capitalize">{c.status}</p>
+    </div>
+  </div>
+
+  <div className="mt-6 rounded-2xl border border-border p-4">
+    <h3 className="text-sm font-semibold">Manual balance adjustment</h3>
+
+    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+      Changes are applied to the customer's account balance on the server.
+      Check the amount carefully before confirming.
+    </p>
+
+    <div className="mt-4 space-y-1.5">
+      <Label htmlFor="admin-adjustment-amount">Amount (USD)</Label>
+
+      <Input
+        id="admin-adjustment-amount"
+        type="number"
+        min="0.01"
+        max="1000000000"
+        step="0.01"
+        value={amount}
+        onChange={(event) => setAmount(event.target.value)}
+        placeholder="0.00"
+        disabled={isSaving || !c.accountId}
+      />
+    </div>
+
+    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+      <Button
+        className="flex-1"
+        onClick={() => void apply(1)}
+        disabled={isSaving || !c.accountId}
+      >
+        <Plus className="mr-1 h-4 w-4" />
+        {isSaving ? "Updating..." : "Add balance"}
+      </Button>
+
+      <Button
+        variant="destructive"
+        className="flex-1"
+        onClick={() => void apply(-1)}
+        disabled={isSaving || !c.accountId}
+      >
+        <Minus className="mr-1 h-4 w-4" />
+        {isSaving ? "Updating..." : "Remove balance"}
+      </Button>
+    </div>
+
+    {!c.accountId && (
+      <p className="mt-3 text-sm text-destructive">
+        This customer has no account assigned, so the balance cannot be
+        adjusted.
+      </p>
+    )}
+  </div>
+</DashboardCard>
+
+
+);
+}
+
+
+function WireTransfersSection() {
+  type WireTransfer = {
+    id: number;
+    reference: string;
+    type: string;
+    amount: string | number;
+    currency: string;
+    status: string;
+    description: string | null;
+    created_at: string;
+    metadata?: {
+      transfer_method?: string;
+      bank_name?: string;
+      routing_number?: string;
+      account_number?: string;
+      account_type?: string;
+      account_name?: string;
+      recipient_address?: string | null;
+      transfer_purpose?: string;
+    } | null;
+    sender_account?: {
+      account_number?: string;
+      user?: {
+        id: number;
+        name: string;
+        email: string;
+      } | null;
+    } | null;
+    senderAccount?: {
+      account_number?: string;
+      user?: {
+        id: number;
+        name: string;
+        email: string;
+      } | null;
+    } | null;
+  };
+
+  type PaginatedTransfers = {
+    data: WireTransfer[];
+    current_page?: number;
+    last_page?: number;
+    total?: number;
+  };
+
+  const [transfers, setTransfers] = useState<WireTransfer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  const loadTransfers = async () => {
+    const token = localStorage.getItem("aurevia_admin_api_token");
+
+    if (!token) {
+      setError("Your administrator session has expired. Please sign in again.");
+      setLoading(false);
       return;
     }
 
-    store.adjust(
-      c.email,
-      account,
-      sign * n,
-      note.trim().slice(0, 100) ||
-        (sign > 0 ? "Admin credit" : "Admin debit"),
+    try {
+      setError("");
+
+      const result = await apiRequest<PaginatedTransfers>(
+        "/admin/external-transfers/pending",
+        {
+          method: "GET",
+          token,
+        },
+      );
+
+      setTransfers(result.data ?? []);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load pending wire transfers.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadTransfers();
+  }, []);
+
+  const handleDecision = async (
+    transfer: WireTransfer,
+    decision: "approve" | "reject",
+  ) => {
+    const actionLabel = decision === "approve" ? "approve" : "reject";
+
+    const confirmed = window.confirm(
+      decision === "approve"
+        ? `Approve wire transfer ${transfer.reference} for ${transfer.currency} ${Number(
+            transfer.amount,
+          ).toFixed(2)}? It will move to processing, not completed.`
+        : `Reject wire transfer ${transfer.reference}? The reserved funds will be returned to the customer's account.`,
     );
 
-    toast.success(
-      `${sign > 0 ? "Added" : "Removed"} ${usd(n)} ${
-        sign > 0 ? "to" : "from"
-      } ${c.name}'s ${acctNames[account]}`,
-    );
+    if (!confirmed) return;
 
-    setAmount("");
-    setNote("");
+    const token = localStorage.getItem("aurevia_admin_api_token");
+
+    if (!token) {
+      toast.error("Your administrator session has expired. Please sign in again.");
+      return;
+    }
+
+    setProcessingId(transfer.id);
+
+    try {
+      const result = await apiRequest<{
+        message: string;
+        transaction?: {
+          status?: string;
+        };
+      }>(
+        `/admin/external-transfers/${transfer.id}/${actionLabel}`,
+        {
+          method: "PATCH",
+          token,
+        },
+      );
+
+      toast.success(result.message);
+
+      // Remove the processed request from the pending list.
+      setTransfers((current) =>
+        current.filter((item) => item.id !== transfer.id),
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : `Unable to ${actionLabel} this wire transfer.`,
+      );
+
+      // Refresh in case the transaction was processed elsewhere.
+      await loadTransfers();
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const maskAccountNumber = (value?: string) => {
+    if (!value) return "Not provided";
+
+    if (value.length <= 4) {
+      return "*".repeat(value.length);
+    }
+
+    return `${"*".repeat(value.length - 4)}${value.slice(-4)}`;
   };
 
   return (
-    <DashboardCard
-      title="Customer account controls"
-      // action={
-      //   // <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-600">
-      //   //   Demo mode
-      //   // </span>
-      // }
-    >
-      <div className="mb-5 flex items-center gap-3">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-primary text-lg font-semibold text-primary-foreground">
-          {c.name[0]?.toUpperCase()}
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold">Wire Transfers</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review customer wire transfer requests awaiting administrator
+            approval.
+          </p>
         </div>
 
-        <div className="min-w-0">
-          <h3 className="font-semibold">{c.name}</h3>
-          <p className="truncate text-sm text-muted-foreground">{c.email}</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setLoading(true);
+            void loadTransfers();
+          }}
+          disabled={loading || processingId !== null}
+        >
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
+      {/* <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+        <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+
+        <div>
+          <p className="text-sm font-semibold">Approval does not send the money</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Approving a request moves it to Processing. The transfer must not
+            be represented as completed unless an actual settlement mechanism
+            confirms that the funds have been sent.
+          </p>
         </div>
-      </div>
+      </div> */}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {(Object.keys(acctNames) as AccountId[]).map((key) => (
-          <div key={key} className="rounded-2xl bg-muted p-4">
-            <p className="text-xs text-muted-foreground">
-              {acctNames[key]}
-            </p>
-            <p className="mt-1 break-words font-semibold">
-              {usd(c.balances[key])}
-            </p>
-          </div>
-        ))}
-      </div>
+      {loading && (
+        <DashboardCard>
+          <p className="text-sm text-muted-foreground">
+            Loading pending wire transfers...
+          </p>
+        </DashboardCard>
+      )}
 
-      <div className="mt-6 rounded-2xl border border-border p-4">
-        <h3 className="text-sm font-semibold">Manual balance adjustment</h3>
-        {/* <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          Demo-only adjustment. This does not represent a verified deposit or
-          an actual movement of money.
-        </p> */}
+      {!loading && error && (
+        <DashboardCard>
+          <div className="space-y-3">
+            <p className="text-sm text-destructive">{error}</p>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Account</Label>
-            <Select
-              value={account}
-              onValueChange={(value) => setAccount(value as AccountId)}
+            <Button
+              variant="outline"
+              onClick={() => {
+                setLoading(true);
+                void loadTransfers();
+              }}
             >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(acctNames) as AccountId[]).map((key) => (
-                  <SelectItem key={key} value={key}>
-                    {acctNames[key]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              Try again
+            </Button>
           </div>
+        </DashboardCard>
+      )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="amt">Amount (USD)</Label>
-            <Input
-              id="amt"
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder="0.00"
-            />
-          </div>
+      {!loading && !error && transfers.length === 0 && (
+        <DashboardCard>
+          <EmptyState
+            icon={CheckCircle2}
+            title="No pending wire transfers"
+            description="New customer requests awaiting review will appear here."
+          />
+        </DashboardCard>
+      )}
 
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="note">Note (optional)</Label>
-            <Input
-              id="note"
-              maxLength={100}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Reason for adjustment"
-            />
-          </div>
+      {!loading && !error && transfers.length > 0 && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {transfers.length} pending request(s) on this page
+          </p>
+
+          {transfers.map((transfer) => {
+            const metadata = transfer.metadata ?? {};
+
+            const sender =
+              transfer.senderAccount?.user ??
+              transfer.sender_account?.user;
+
+            const senderAccount =
+              transfer.senderAccount?.account_number ??
+              transfer.sender_account?.account_number;
+
+            return (
+              <DashboardCard key={transfer.id}>
+                <div className="space-y-5">
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                    <div>
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600">
+                        <Clock3 className="h-3.5 w-3.5" />
+                        Pending Approval
+                      </span>
+
+                      <h3 className="mt-3 text-lg font-semibold">
+                        {metadata.account_name || "Unnamed recipient"}
+                      </h3>
+
+                      <p className="mt-1 break-all text-xs text-muted-foreground">
+                        Reference: {transfer.reference}
+                      </p>
+                    </div>
+
+                    <div className="sm:text-right">
+                      <p className="text-2xl font-semibold">
+                        {transfer.currency}{" "}
+                        {Number(transfer.amount).toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </p>
+
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Requested{" "}
+                        {new Date(transfer.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 rounded-xl border border-border bg-muted/30 p-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Customer
+                      </p>
+
+                      <p className="mt-1 font-medium">
+                        {sender?.name || "Customer information unavailable"}
+                      </p>
+
+                      <p className="mt-1 break-all text-sm text-muted-foreground">
+                        {sender?.email || "Email unavailable"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Customer account
+                      </p>
+
+                      <p className="mt-1 font-medium">
+                        {senderAccount
+                          ? maskAccountNumber(senderAccount)
+                          : "Not available"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Recipient bank
+                      </p>
+
+                      <p className="mt-1 font-medium">
+                        {metadata.bank_name || "Not provided"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Recipient account
+                      </p>
+
+                      <p className="mt-1 font-medium">
+                        {maskAccountNumber(metadata.account_number)}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Routing number
+                      </p>
+
+                      <p className="mt-1 font-medium">
+                        {metadata.routing_number || "Not provided"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Account type
+                      </p>
+
+                      <p className="mt-1 font-medium capitalize">
+                        {metadata.account_type || "Not provided"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Transfer purpose
+                      </p>
+
+                      <p className="mt-1 font-medium">
+                        {(
+                          metadata.transfer_purpose || "Not specified"
+                        ).replaceAll("_", " ")}
+                      </p>
+                    </div>
+
+                    {metadata.recipient_address && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Recipient address
+                        </p>
+
+                        <p className="mt-1 break-words font-medium">
+                          {metadata.recipient_address}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
+                    <Button
+                      variant="outline"
+                      disabled={processingId !== null}
+                      onClick={() =>
+                        void handleDecision(transfer, "reject")
+                      }
+                    >
+                      {processingId === transfer.id ? (
+                        "Processing..."
+                      ) : (
+                        <>
+                          <X className="mr-2 h-4 w-4" />
+                          Reject & Refund
+                        </>
+                      )}
+                    </Button>
+
+                    <Button
+                      disabled={processingId !== null}
+                      onClick={() =>
+                        void handleDecision(transfer, "approve")
+                      }
+                    >
+                      {processingId === transfer.id ? (
+                        "Processing..."
+                      ) : (
+                        <>
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          Approve for Processing
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </DashboardCard>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type BtcCustomerSubmission = {
+  txid: string | null;
+  submitted_at: string | null;
+  verification_status: string;
+};
+
+type BtcMatchedOutput = {
+  txid: string;
+  output_index: number;
+  value_satoshis: string;
+  confirmations: number;
+  confirmed: boolean;
+  status: string;
+};
+
+type BtcPaymentVerification = {
+  verified_by_admin_id?: number;
+  verified_at?: string;
+  verified_satoshis?: string;
+  confirmations?: number;
+  block_height?: number;
+  underpayment?: boolean;
+  quote_expired?: boolean;
+  requires_manual_review?: boolean;
+};
+
+type BtcDeposit = {
+  id: number;
+  user?: {
+    id: number;
+    name: string;
+    email: string;
+  } | null;
+  account?: {
+    id: number;
+    user_id: number;
+    account_number: string;
+    currency: string;
+  } | null;
+  transaction?: {
+    id?: number;
+    reference: string;
+    status: string;
+  } | null;
+  usd_amount: string | number;
+  btc_amount: string | number;
+  btc_received: string | number | null;
+  receiving_address: string;
+  status: string;
+  confirmations: number;
+  expires_at: string | null;
+  created_at: string | null;
+  customer_submitted_txids: BtcCustomerSubmission[];
+  matched_output: BtcMatchedOutput | null;
+  payment_verification: BtcPaymentVerification | null;
+};
+
+type BtcChainOutput = {
+  id: number;
+  txid: string;
+  output_index: number;
+  value_satoshis: string | number;
+  receiving_address: string;
+  confirmations: number;
+  confirmed: boolean;
+  status: string;
+  first_seen_at: string | null;
+};
+
+type PaginatedBtcData<T> = {
+  data: T[];
+  current_page?: number;
+  last_page?: number;
+  total?: number;
+};
+
+function BitcoinDepositsSection() {
+  const [deposits, setDeposits] = useState<BtcDeposit[]>([]);
+  const [outputs, setOutputs] = useState<BtcChainOutput[]>([]);
+  const [selectedOutputs, setSelectedOutputs] = useState<
+    Record<number, string>
+  >({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [processingId, setProcessingId] = useState<number | null>(null);
+  const [pageInfo, setPageInfo] = useState({
+    total: 0,
+    currentPage: 1,
+    lastPage: 1,
+  });
+
+  const getToken = () => {
+    const token = localStorage.getItem("aurevia_admin_api_token");
+
+    if (!token) {
+      throw new Error(
+        "Your administrator session has expired. Please sign in again.",
+      );
+    }
+
+    return token;
+  };
+
+  const loadDeposits = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+
+    setError("");
+
+    try {
+      const token = getToken();
+
+      const [depositResponse, outputResponse] = await Promise.all([
+        apiRequest<{
+          deposits: PaginatedBtcData<BtcDeposit>;
+        }>("/admin/btc-deposits/pending", {
+          method: "GET",
+          token,
+        }),
+
+        apiRequest<{
+          outputs: PaginatedBtcData<BtcChainOutput> | BtcChainOutput[];
+          message?: string;
+        }>("/admin/btc-chain-outputs/available", {
+          method: "GET",
+          token,
+        }),
+      ]);
+
+      const depositPage = depositResponse.deposits;
+
+      setDeposits(depositPage?.data ?? []);
+
+      setPageInfo({
+        total: depositPage?.total ?? depositPage?.data?.length ?? 0,
+        currentPage: depositPage?.current_page ?? 1,
+        lastPage: depositPage?.last_page ?? 1,
+      });
+
+      const availableOutputs = Array.isArray(outputResponse.outputs)
+        ? outputResponse.outputs
+        : outputResponse.outputs?.data ?? [];
+
+      setOutputs(availableOutputs);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load Bitcoin deposits.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadDeposits();
+  }, []);
+
+  const formatUsd = (amount: string | number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(amount));
+
+  const formatBtc = (amount: string | number | null) =>
+    amount === null || amount === undefined
+      ? "Not recorded"
+      : `${Number(amount).toFixed(8)} BTC`;
+
+  const statusLabel = (status: string) =>
+    status.replaceAll("_", " ").replace(/\b\w/g, (char) =>
+      char.toUpperCase(),
+    );
+
+  const statusClass = (status: string) => {
+    if (status === "completed") {
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600";
+    }
+
+    if (
+      status === "underpayment_review" ||
+      status === "expired_payment_review"
+    ) {
+      return "border-destructive/30 bg-destructive/10 text-destructive";
+    }
+
+    if (status === "detected") {
+      return "border-blue-500/30 bg-blue-500/10 text-blue-600";
+    }
+
+    return "border-amber-500/30 bg-amber-500/10 text-amber-600";
+  };
+
+  const handleMatch = async (deposit: BtcDeposit) => {
+    const selectedOutputId = selectedOutputs[deposit.id];
+
+    if (!selectedOutputId) {
+      toast.error("Select an available blockchain output first.");
+      return;
+    }
+
+    const selectedOutput = outputs.find(
+      (output) => String(output.id) === selectedOutputId,
+    );
+
+    if (!selectedOutput) {
+      toast.error("That blockchain output is no longer available. Refresh the list.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Match the selected blockchain output to deposit #${deposit.id}?\n\n` +
+        `Customer: ${deposit.user?.name ?? "Unknown"}\n` +
+        `Requested amount: ${formatUsd(deposit.usd_amount)}\n` +
+        `Transaction ID: ${selectedOutput.txid}\n\n` +
+        "Matching does not credit the customer's account.",
+    );
+
+    if (!confirmed) return;
+
+    setProcessingId(deposit.id);
+
+    try {
+      const token = getToken();
+
+      const result = await apiRequest<{
+        message: string;
+        deposit?: BtcDeposit;
+        review_reasons?: string[];
+      }>(`/admin/btc-deposits/${deposit.id}/match`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          chain_output_id: Number(selectedOutputId),
+        }),
+      });
+
+      if (result.review_reasons?.length) {
+        toast.warning(
+          `${result.message} Review required: ${result.review_reasons.join(", ")}.`,
+        );
+      } else {
+        toast.success(result.message);
+      }
+
+      setSelectedOutputs((current) => {
+        const next = { ...current };
+        delete next[deposit.id];
+        return next;
+      });
+
+      await loadDeposits(false);
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Unable to match the Bitcoin payment.",
+      );
+
+      await loadDeposits(false);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleApprove = async (deposit: BtcDeposit) => {
+    if (deposit.status !== "detected" || !deposit.matched_output) {
+      toast.error("This deposit is not eligible for standard approval.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Approve and credit this Bitcoin deposit?\n\n` +
+        `Customer: ${deposit.user?.name ?? "Unknown"}\n` +
+        `Amount: ${formatUsd(deposit.usd_amount)}\n` +
+        `Bitcoin received: ${formatBtc(deposit.btc_received)}\n` +
+        `Transaction ID: ${deposit.matched_output.txid}\n\n` +
+        "The backend will independently verify the payment before crediting the customer's USD account.",
+    );
+
+    if (!confirmed) return;
+
+    setProcessingId(deposit.id);
+
+    try {
+      const token = getToken();
+
+      const result = await apiRequest<{
+        message: string;
+        credited_amount?: string | number;
+        currency?: string;
+        account_balance?: string | number;
+      }>(`/admin/btc-deposits/${deposit.id}/approve`, {
+        method: "PATCH",
+        token,
+      });
+
+      toast.success(
+        result.account_balance !== undefined
+          ? `${result.message} New account balance: ${formatUsd(result.account_balance)}.`
+          : result.message,
+      );
+
+      await loadDeposits(false);
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Unable to approve this Bitcoin deposit.",
+      );
+
+      await loadDeposits(false);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold">
+            Bitcoin Deposit Management
+          </h2>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Verify incoming Bitcoin payments and review deposits before
+            crediting customer USD accounts.
+          </p>
         </div>
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <Button className="flex-1" onClick={() => apply(1)}>
-            <Plus className="mr-1 h-4 w-4" />
-            Add balance
-          </Button>
+        <Button
+          variant="outline"
+          disabled={loading || processingId !== null}
+          onClick={() => void loadDeposits()}
+        >
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
 
-          <Button
-            variant="destructive"
-            className="flex-1"
-            onClick={() => apply(-1)}
-          >
-            <Minus className="mr-1 h-4 w-4" />
-            Remove balance
-          </Button>
+      <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+        <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+
+        <div>
+          <p className="text-sm font-semibold">
+            Payment verification is required
+          </p>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Customer-submitted transaction IDs are unverified claims.
+            Matching records a verified payment but does not credit an
+            account. Only eligible deposits can proceed to standard approval.
+            Expired payments and underpayments require manual review.
+          </p>
         </div>
       </div>
 
-      <h3 className="mt-8 text-sm font-semibold">
-        Adjustment history
-      </h3>
-
-      <ul className="mt-2 divide-y divide-border text-sm">
-        {c.history.slice(0, 10).map((entry) => (
-          <li key={entry.id} className="flex items-start justify-between gap-3 py-3">
-            <div className="min-w-0">
-              <p>{entry.note}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {acctNames[entry.account]} ·{" "}
-                {new Date(entry.date).toLocaleString()}
-              </p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <DashboardCard>
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-amber-500/10 p-2 text-amber-600">
+              <Clock3 className="h-5 w-5" />
             </div>
 
-            <span
-              className={`shrink-0 font-semibold ${
-                entry.amount > 0
-                  ? "text-emerald-600"
-                  : "text-destructive"
-              }`}
-            >
-              {usd(entry.amount, true)}
-            </span>
-          </li>
-        ))}
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Awaiting review
+              </p>
+              <p className="text-2xl font-semibold">
+                {deposits.filter((deposit) => deposit.status === "pending").length}
+              </p>
+            </div>
+          </div>
+        </DashboardCard>
 
-        {!c.history.length && (
-          <li className="py-3 text-muted-foreground">
-            No adjustments yet.
-          </li>
-        )}
-      </ul>
-    </DashboardCard>
+        <DashboardCard>
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-blue-500/10 p-2 text-blue-600">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Matched payments
+              </p>
+              <p className="text-2xl font-semibold">
+                {deposits.filter((deposit) => deposit.status === "detected").length}
+              </p>
+            </div>
+          </div>
+        </DashboardCard>
+
+        <DashboardCard>
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-destructive/10 p-2 text-destructive">
+              <ShieldAlert className="h-5 w-5" />
+            </div>
+
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Manual review
+              </p>
+              <p className="text-2xl font-semibold">
+                {
+                  deposits.filter((deposit) =>
+                    [
+                      "expired_payment_review",
+                      "underpayment_review",
+                    ].includes(deposit.status),
+                  ).length
+                }
+              </p>
+            </div>
+          </div>
+        </DashboardCard>
+      </div>
+
+      {loading && (
+        <DashboardCard>
+          <p className="text-sm text-muted-foreground">
+            Loading Bitcoin deposits and available blockchain outputs...
+          </p>
+        </DashboardCard>
+      )}
+
+      {!loading && error && (
+        <DashboardCard>
+          <div className="space-y-3">
+            <p className="text-sm text-destructive">{error}</p>
+
+            <Button
+              variant="outline"
+              onClick={() => void loadDeposits()}
+            >
+              Try again
+            </Button>
+          </div>
+        </DashboardCard>
+      )}
+
+      {!loading && !error && deposits.length === 0 && (
+        <DashboardCard>
+          <EmptyState
+            icon={Wallet}
+            title="No Bitcoin deposits awaiting review"
+            description="New Bitcoin deposit requests requiring administrator review will appear here."
+          />
+        </DashboardCard>
+      )}
+
+      {!loading && !error && deposits.length > 0 && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Showing {deposits.length} deposit(s) on this page
+            {pageInfo.total > 0 ? ` · ${pageInfo.total} total` : ""}
+          </p>
+
+          {deposits.map((deposit) => {
+            const requiresManualReview = [
+              "expired_payment_review",
+              "underpayment_review",
+            ].includes(deposit.status);
+
+            const canMatch =
+              deposit.status === "pending" &&
+              !deposit.matched_output &&
+              (deposit.customer_submitted_txids ?? []).some(
+                (submission) => Boolean(submission.txid),
+              );
+
+            const canApprove =
+              deposit.status === "detected" &&
+              Boolean(deposit.matched_output) &&
+              !requiresManualReview;
+
+            return (
+              <DashboardCard key={deposit.id}>
+                <div className="space-y-5">
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                    <div className="min-w-0">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${statusClass(
+                          deposit.status,
+                        )}`}
+                      >
+                        {statusLabel(deposit.status)}
+                      </span>
+
+                      <h3 className="mt-3 text-lg font-semibold">
+                        {deposit.user?.name ?? "Customer information unavailable"}
+                      </h3>
+
+                      <p className="mt-1 break-all text-sm text-muted-foreground">
+                        {deposit.user?.email ?? "Email unavailable"}
+                      </p>
+
+                      <p className="mt-2 break-all text-xs text-muted-foreground">
+                        Deposit ID: {deposit.id}
+                        {deposit.transaction?.reference
+                          ? ` · Reference: ${deposit.transaction.reference}`
+                          : ""}
+                      </p>
+                    </div>
+
+                    <div className="sm:text-right">
+                      <p className="text-2xl font-semibold">
+                        {formatUsd(deposit.usd_amount)}
+                      </p>
+
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Quoted: {formatBtc(deposit.btc_amount)}
+                      </p>
+
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Received: {formatBtc(deposit.btc_received)}
+                      </p>
+
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Confirmations: {deposit.confirmations ?? 0}
+                      </p>
+
+                      {deposit.created_at && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Created{" "}
+                          {new Date(deposit.created_at).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 rounded-xl border border-border bg-muted/30 p-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Customer account
+                      </p>
+
+                      <p className="mt-1 break-all font-medium">
+                        {deposit.account?.account_number ?? "Unavailable"}
+                      </p>
+
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Currency: {deposit.account?.currency ?? "Unknown"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Receiving address
+                      </p>
+
+                      <p className="mt-1 break-all font-mono text-xs">
+                        {deposit.receiving_address}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Quote expiry
+                      </p>
+
+                      <p className="mt-1 text-sm">
+                        {deposit.expires_at
+                          ? new Date(deposit.expires_at).toLocaleString()
+                          : "Not recorded"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Transaction status
+                      </p>
+
+                      <p className="mt-1 text-sm">
+                        {statusLabel(deposit.transaction?.status ?? "unknown")}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold">
+                      Customer-submitted transaction IDs
+                    </h4>
+
+                    {(deposit.customer_submitted_txids ?? []).length > 0 ? (
+                      <div className="space-y-2">
+                        {deposit.customer_submitted_txids.map(
+                          (submission, index) => (
+                            <div
+                              key={`${submission.txid ?? "missing"}-${index}`}
+                              className="rounded-xl border border-border p-3"
+                            >
+                              <p className="break-all font-mono text-xs">
+                                {submission.txid ?? "No transaction ID recorded"}
+                              </p>
+
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-medium text-amber-600">
+                                  Unverified claim
+                                </span>
+
+                                {submission.submitted_at && (
+                                  <span className="text-xs text-muted-foreground">
+                                    Submitted{" "}
+                                    {new Date(
+                                      submission.submitted_at,
+                                    ).toLocaleString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        The customer has not submitted a transaction ID.
+                      </p>
+                    )}
+                  </div>
+
+                  {deposit.matched_output && (
+                    <div className="space-y-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+
+                        <h4 className="text-sm font-semibold">
+                          Matched blockchain output
+                        </h4>
+                      </div>
+
+                      <p className="break-all font-mono text-xs">
+                        TXID: {deposit.matched_output.txid}
+                      </p>
+
+                      <p className="text-sm text-muted-foreground">
+                        Output index: {deposit.matched_output.output_index}
+                        {" · "}
+                        Value:{" "}
+                        {deposit.matched_output.value_satoshis} satoshis
+                      </p>
+
+                      <p className="text-sm text-muted-foreground">
+                        Confirmations: {deposit.matched_output.confirmations}
+                        {" · "}
+                        {deposit.matched_output.confirmed
+                          ? "Confirmed"
+                          : "Not confirmed"}
+                      </p>
+
+                      <p className="text-sm text-muted-foreground">
+                        Output status:{" "}
+                        {statusLabel(deposit.matched_output.status)}
+                      </p>
+                    </div>
+                  )}
+
+                  {requiresManualReview && (
+                    <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+                      <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+
+                      <div>
+                        <p className="text-sm font-semibold text-destructive">
+                          Manual review required
+                        </p>
+
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {deposit.status === "underpayment_review"
+                            ? "The verified payment is below the quoted Bitcoin amount."
+                            : "The payment was received after the deposit quote expired."}
+                          {" "}Standard approval is disabled. No account credit
+                          should be inferred from the payment match.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {deposit.payment_verification && (
+                    <div className="rounded-xl border border-border p-4">
+                      <h4 className="text-sm font-semibold">
+                        Payment verification record
+                      </h4>
+
+                      <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+                        <p className="text-muted-foreground">
+                          Verified confirmations:{" "}
+                          <span className="font-medium text-foreground">
+                            {deposit.payment_verification.confirmations ?? "—"}
+                          </span>
+                        </p>
+
+                        <p className="text-muted-foreground">
+                          Block height:{" "}
+                          <span className="font-medium text-foreground">
+                            {deposit.payment_verification.block_height ?? "—"}
+                          </span>
+                        </p>
+
+                        <p className="text-muted-foreground">
+                          Underpayment:{" "}
+                          <span className="font-medium text-foreground">
+                            {deposit.payment_verification.underpayment
+                              ? "Yes"
+                              : "No"}
+                          </span>
+                        </p>
+
+                        <p className="text-muted-foreground">
+                          Quote expired:{" "}
+                          <span className="font-medium text-foreground">
+                            {deposit.payment_verification.quote_expired
+                              ? "Yes"
+                              : "No"}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {canMatch && (
+                    <div className="space-y-3 rounded-xl border border-border p-4">
+                      <div>
+                        <h4 className="text-sm font-semibold">
+                          Match a blockchain payment
+                        </h4>
+
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Only unmatched outputs discovered by the backend
+                          monitor are listed. The selected transaction must
+                          match a customer-submitted TXID.
+                        </p>
+                      </div>
+
+                      {outputs.length > 0 ? (
+                        <>
+                          <Select
+                            value={selectedOutputs[deposit.id] ?? ""}
+                            onValueChange={(value) =>
+                              setSelectedOutputs((current) => ({
+                                ...current,
+                                [deposit.id]: value,
+                              }))
+                            }
+                            disabled={processingId !== null}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select an available blockchain output" />
+                            </SelectTrigger>
+
+                            <SelectContent>
+                              {outputs.map((output) => (
+                                <SelectItem
+                                  key={output.id}
+                                  value={String(output.id)}
+                                >
+                                  {`${output.txid.slice(0, 12)}…${output.txid.slice(-8)} · Output ${output.output_index} · ${output.value_satoshis} sats`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          <Button
+                            onClick={() => void handleMatch(deposit)}
+                            disabled={
+                              processingId !== null ||
+                              !selectedOutputs[deposit.id]
+                            }
+                          >
+                            {processingId === deposit.id
+                              ? "Verifying payment..."
+                              : "Verify & Match Payment"}
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No available blockchain outputs were returned.
+                          Refresh after the backend monitor discovers new
+                          outputs.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {canApprove && (
+                    <div className="flex flex-col gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">
+                          Payment matched — awaiting approval
+                        </p>
+
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Approval triggers another blockchain verification
+                          and credits the requested USD amount only if the
+                          backend checks pass.
+                        </p>
+                      </div>
+
+                      <Button
+                        disabled={processingId !== null}
+                        onClick={() => void handleApprove(deposit)}
+                      >
+                        {processingId === deposit.id
+                          ? "Verifying & approving..."
+                          : "Approve & Credit USD"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {!canMatch &&
+                    !canApprove &&
+                    !requiresManualReview &&
+                    deposit.status !== "completed" && (
+                      <p className="rounded-xl border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                        {deposit.status === "pending" &&
+                        !(deposit.customer_submitted_txids ?? []).some(
+                          (submission) => Boolean(submission.txid),
+                        )
+                          ? "Waiting for the customer to submit a Bitcoin transaction ID."
+                          : deposit.status === "confirming"
+                            ? "The payment is still confirming. Standard approval is unavailable."
+                            : "This deposit is not currently eligible for matching or standard approval."}
+                      </p>
+                    )}
+
+                  {deposit.status === "completed" && (
+                    <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm text-emerald-600">
+                      <CheckCircle2 className="h-5 w-5 shrink-0" />
+                      This deposit has already been credited. No further
+                      approval action is available.
+                    </div>
+                  )}
+                </div>
+              </DashboardCard>
+            );
+          })}
+
+          {pageInfo.lastPage > 1 && (
+            <p className="text-xs text-muted-foreground">
+              Page {pageInfo.currentPage} of {pageInfo.lastPage}. Pagination
+              controls can be added if you have more than 20 deposits or
+              available outputs.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

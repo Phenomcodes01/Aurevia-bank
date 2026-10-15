@@ -161,28 +161,191 @@ export function CTASection({ title = "Ready to Join Aurevia Bank?", subtitle = "
   );
 }
 
-export function BankingCard({ tone = "navy", name = "Alex Morgan", last4 = "4582", label = "Aurevia Bank Debit", className }: { tone?: "navy" | "primary" | "glass"; name?: string; last4?: string; label?: string; className?: string }) {
-  const bg = tone === "navy" ? "bg-gradient-navy" : tone === "primary" ? "bg-gradient-primary" : "bg-navy";
+export function BankingCard({
+  tone = "navy",
+  name = "Alex Morgan",
+  last4 = "4582",
+  label = "Aurevia Bank Debit",
+  className,
+  cardNumber,
+  expiry,
+  cvv,
+  showFullNumber = false,
+  showExpiry = false,
+  showCvv = false,
+  onToggleNumber,
+  onToggleExpiry,
+  onToggleCvv,
+  onCopyCardNumber,
+  copied = false,
+}: {
+  tone?: "navy" | "primary" | "glass";
+  name?: string;
+  last4?: string;
+  label?: string;
+  className?: string;
+  cardNumber?: string;
+  expiry?: string;
+  cvv?: string;
+  showFullNumber?: boolean;
+  showExpiry?: boolean;
+  showCvv?: boolean;
+  onToggleNumber?: () => void;
+  onToggleExpiry?: () => void;
+  onToggleCvv?: () => void;
+  onCopyCardNumber?: () => void;
+  copied?: boolean;
+}) {
+  const bg =
+    tone === "navy"
+      ? "bg-gradient-navy"
+      : tone === "primary"
+        ? "bg-gradient-primary"
+        : "bg-navy";
+
+  const displayedNumber = cardNumber
+    ? showFullNumber
+      ? cardNumber
+      : `•••• •••• •••• ${last4}`
+    : `•••• •••• •••• ${last4}`;
+
+  const hasCardActions =
+    Boolean(onToggleNumber) ||
+    Boolean(onToggleExpiry) ||
+    Boolean(onToggleCvv) ||
+    Boolean(onCopyCardNumber);
+
   return (
-    <div className={cn("relative aspect-[1.586] w-full overflow-hidden rounded-3xl p-6 text-navy-foreground shadow-elegant transition-transform duration-500 hover:-translate-y-1 hover:rotate-[-1deg]", bg, className)}>
-      <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-navy-foreground/10" aria-hidden />
-      <div className="absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-navy-foreground/5" aria-hidden />
+    <div
+      className={cn(
+        "relative aspect-[1.586] w-full overflow-hidden rounded-3xl p-5 text-navy-foreground shadow-elegant transition-transform duration-500 hover:-translate-y-1 hover:rotate-[-1deg] sm:p-6",
+        bg,
+        className,
+      )}
+    >
+      <div
+        className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-navy-foreground/10"
+        aria-hidden
+      />
+
+      <div
+        className="absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-navy-foreground/5"
+        aria-hidden
+      />
+
       <div className="relative flex h-full flex-col justify-between">
-        <div className="flex items-start justify-between">
-          <span className="font-display text-sm font-semibold tracking-wide">{label}</span>
+        <div className="flex items-start justify-between gap-3">
+          <span className="font-display text-sm font-semibold tracking-wide">
+            {label}
+          </span>
+
+          <span className="shrink-0 text-xs font-semibold tracking-widest opacity-80">
+            AUREVIA
+          </span>
         </div>
-        <div className="h-8 w-11 rounded-md bg-navy-foreground/30" aria-hidden />
-        <div>
-          <p className="font-mono text-lg tracking-[0.2em]">•••• •••• •••• {last4}</p>
-          <div className="mt-2 flex justify-between text-xs opacity-80">
-            <span>{name}</span>
-            <span>••/••</span>
+
+        <div
+          className="h-8 w-11 rounded-md border border-navy-foreground/20 bg-gradient-to-br from-navy-foreground/50 to-navy-foreground/20"
+          aria-hidden
+        />
+
+        <div className="min-w-0">
+          <p
+            className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-base tracking-wider sm:text-lg sm:tracking-[0.12em]"
+            aria-label={
+              cardNumber && !showFullNumber
+                ? `Card number ending in ${last4}`
+                : undefined
+            }
+          >
+            {displayedNumber}
+          </p>
+
+          {hasCardActions && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold sm:text-xs">
+              {onToggleNumber && (
+                <button
+                  type="button"
+                  onClick={onToggleNumber}
+                  className="underline underline-offset-2 hover:opacity-75"
+                >
+                  {showFullNumber ? "Hide number" : "Show number"}
+                </button>
+              )}
+
+              {onCopyCardNumber && (
+                <button
+                  type="button"
+                  onClick={onCopyCardNumber}
+                  className="underline underline-offset-2 hover:opacity-75"
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="mt-3 flex items-end justify-between gap-3 text-xs">
+            <div className="min-w-0">
+              <p className="mb-1 text-[9px] uppercase tracking-widest opacity-70">
+                Cardholder
+              </p>
+
+              <p className="overflow-hidden text-ellipsis whitespace-nowrap font-semibold uppercase">
+                {name}
+              </p>
+            </div>
+
+            <div className="flex shrink-0 items-end gap-4 text-right">
+              <div>
+                <p className="mb-1 text-[9px] uppercase tracking-widest opacity-70">
+                  Expires
+                </p>
+
+                <p className="font-mono font-semibold">
+                  {expiry && showExpiry ? expiry : "••/••"}
+                </p>
+
+                {onToggleExpiry && (
+                  <button
+                    type="button"
+                    onClick={onToggleExpiry}
+                    className="mt-1 text-[10px] underline underline-offset-2 hover:opacity-75"
+                  >
+                    {showExpiry ? "Hide" : "Show"}
+                  </button>
+                )}
+              </div>
+
+              {cvv !== undefined && (
+                <div>
+                  <p className="mb-1 text-[9px] uppercase tracking-widest opacity-70">
+                    CVV
+                  </p>
+
+                  <p className="font-mono font-semibold">
+                    {showCvv ? cvv : "•••"}
+                  </p>
+
+                  {onToggleCvv && (
+                    <button
+                      type="button"
+                      onClick={onToggleCvv}
+                      className="mt-1 text-[10px] underline underline-offset-2 hover:opacity-75"
+                    >
+                      {showCvv ? "Hide" : "Show"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 }
+
 
 export function Section({ children, className, id }: { children: ReactNode; className?: string; id?: string }) {
   return <section id={id} className={cn("px-6 py-24", className)}><div className="mx-auto max-w-7xl">{children}</div></section>;
